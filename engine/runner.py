@@ -84,28 +84,52 @@ class AgentRunner:
     def __init__(self, config: Config):
         self.config = config
         self.stats: dict[str, RunnerStats] = {}
-        for agent in (AgentIdentity for _ in []):  # placeholder
-            pass
+        self._sessions: dict[str, bool] = {}  # agent_name -> has_active_session
 
     def _get_stats(self, name: str) -> RunnerStats:
         if name not in self.stats:
             self.stats[name] = RunnerStats(agent_name=name)
         return self.stats[name]
 
+    def _has_session(self, agent: AgentIdentity) -> bool:
+        return self._sessions.get(agent.name, False)
+
+    async def run_with_context(self, agent: AgentIdentity, task: AgentTask,
+                               working_dir: Path | None = None) -> AgentResult:
+        """
+        Run a task with session context. First call is normal, subsequent calls
+        use --continue / --resume to maintain conversation history.
+        """
+        if self._has_session(agent):
+            result = await self._run(agent, task, working_dir, use_continue=True)
+        else:
+            result = await self._run(agent, task, working_dir, use_continue=False)
+        # Mark session as active — even if it failed, try --continue next time
+        self._sessions[agent.name] = True
+        return result
+
     async def run(self, agent: AgentIdentity, task: AgentTask,
                   working_dir: Path | None = None) -> AgentResult:
+        """Execute a one-shot task (no session context)."""
+        return await self._run(agent, task, working_dir, use_continue=False)
+
+    async def reset_session(self, agent: AgentIdentity):
+        """Forget session context for an agent (next call starts fresh)."""
+        self._sessions.pop(agent.name, None)
+
+    async def _run(self, agent: AgentIdentity, task: AgentTask,
+                   working_dir: Path | None = None,
+                   use_continue: bool = False) -> AgentResult:
         """
         Execute a task on a specific agent CLI.
 
         Args:
-            agent: Which agent to invoke (cici/coco/soso identity)
+            agent: Which agent to invoke
             task: The prompt + context + timeout
             working_dir: Working directory for the subprocess (default: project root)
-
-        Returns:
-            AgentResult with output, timing, and status
+            use_continue: If True, use --continue/resume template for session context
         """
-        cmd = self.config.get_cli_command(agent, task.full_prompt())
+        cmd = self.config.get_cli_command(agent, task.full_prompt(), use_continue=use_continue)
         cwd = working_dir or self.config.project_root
 
         logger.info(f"🚀 {agent.name} starting | timeout={task.timeout_seconds}s")

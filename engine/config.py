@@ -64,6 +64,13 @@ CLI_TEMPLATES: dict[str, list[str]] = {
     "cursor": ["cursor-agent", "{prompt}"],
 }
 
+# Templates with --continue / --resume for session context
+CLI_CONTINUE_TEMPLATES: dict[str, list[str]] = {
+    "claude": ["claude", "--print", "--output-format", "json", "--continue", "{prompt}"],
+    "codex": ["codex", "exec", "resume", "--last", "{prompt}"],
+    "cursor": ["cursor-agent", "{prompt}"],  # cursor doesn't have a known --continue flag yet
+}
+
 
 @dataclass(frozen=True)
 class Config:
@@ -99,9 +106,15 @@ class Config:
             return env_path
         return agent.cli  # fallback: rely on PATH
 
-    def get_cli_command(self, agent: AgentIdentity, prompt: str) -> list[str]:
-        """Build the full CLI command for an agent with the given prompt."""
-        template = CLI_TEMPLATES[agent.cli]
+    def get_cli_command(self, agent: AgentIdentity, prompt: str,
+                         use_continue: bool = False) -> list[str]:
+        """Build the full CLI command for an agent with the given prompt.
+
+        When use_continue=True, uses --continue/resume templates to maintain
+        conversation context across calls (ADR-002).
+        """
+        templates = CLI_CONTINUE_TEMPLATES if use_continue else CLI_TEMPLATES
+        template = templates.get(agent.cli, CLI_TEMPLATES[agent.cli])
         return [part.format(prompt=prompt) for part in template]
 
 
