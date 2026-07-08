@@ -100,8 +100,101 @@ def runner(config):
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "slow: marks tests as slow (real CLI invocations)")
+    config.addinivalue_line(
+        "markers",
+        "e2e: Dashboard Playwright end-to-end tests (requires browsers + dev servers)",
+    )
 
 
 @pytest.fixture(params=ALL_AGENTS, ids=lambda a: a.cli)
 def agent(request):
     return request.param
+
+
+# ---- Dashboard E2E fixtures (Playwright) ----
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DASHBOARD_DIR = PROJECT_ROOT / "dashboard"
+
+
+@pytest.fixture(scope="session")
+def browser_context_args(browser_context_args):
+    return {
+        **browser_context_args,
+        "viewport": {"width": 1440, "height": 900},
+    }
+
+
+@pytest.fixture(scope="session")
+def dashboard_url():
+    from tests.e2e_support import DASHBOARD_URL
+
+    return DASHBOARD_URL
+
+
+@pytest.fixture(scope="session")
+def api_url():
+    from tests.e2e_support import API_URL
+
+    return API_URL
+
+
+@pytest.fixture(scope="session")
+def e2e_servers(tmp_path_factory):
+    pytest.importorskip("playwright")
+    if not DASHBOARD_DIR.joinpath("package.json").exists():
+        pytest.skip("dashboard/ source not available")
+
+    import threading
+
+    import uvicorn
+
+    from tests.e2e_support import (
+        API_URL,
+        DASHBOARD_URL,
+        install_mock_runner,
+        start_vite_dev_server,
+        wait_for_http,
+    )
+
+    e2e_root = tmp_path_factory.mktemp("teamchat_e2e")
+    (e2e_root / ".teamchat" / "messages").mkdir(parents=True)
+
+    restore_runner = install_mock_runner(project_root=e2e_root)
+    from api.main import app as fastapi_app
+
+    api_config = uvicorn.Config(
+        fastapi_app,
+        host="127.0.0.1",
+        port=8000,
+        log_level="warning",
+    )
+    api_server = uvicorn.Server(api_config)
+    api_thread = threading.Thread(target=api_server.run, daemon=True)
+    api_thread.start()
+
+    vite_proc = None
+    try:
+        wait_for_http(f"{API_URL}/api/health")
+        vite_proc = start_vite_dev_server(DASHBOARD_DIR)
+        wait_for_http(DASHBOARD_URL)
+
+        yield {
+            "api_url": API_URL,
+            "dashboard_url": DASHBOARD_URL,
+            "app": fastapi_app,
+            "api_server": api_server,
+            "api_thread": api_thread,
+        }
+    finally:
+        api_server.should_exit = True
+        api_thread.join(timeout=10)
+        if vite_proc is not None:
+            vite_proc.terminate()
+            vite_proc.wait(timeout=10)
+        restore_runner()
+
+
+@pytest.fixture(scope="session")
+def e2e_app(e2e_servers):
+    return e2e_servers["app"]

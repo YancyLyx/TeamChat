@@ -11,6 +11,7 @@ Usage:
 """
 
 import logging
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
@@ -71,6 +72,7 @@ async def lifespan(app: FastAPI):
     app.state.router = router_inst
     app.state.bus = bus
     app.state.ws_manager = manager
+    app.state.loop = asyncio.get_running_loop()
 
     async def on_bus_message(msg):
         await manager.broadcast({
