@@ -19,6 +19,7 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
   const scrollRef = useRef(null)
   const lastWsCountRef = useRef(0)
   const pendingRef = useRef(false)
+  const seenMsgIds = useRef(new Set())
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -140,6 +141,10 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
     for (const msg of newMsgs) {
       if (msg.type === 'chat_message') {
         const data = msg.data || {}
+        // Dedup: skip if this message ID was already seen
+        const msgId = data.id || msg.type
+        if (msgId && seenMsgIds.current.has(msgId)) continue
+        if (msgId) seenMsgIds.current.add(msgId)
         additions.push({
           id: data.id || `chat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           kind: data.kind || 'agent_message',
@@ -195,6 +200,10 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
     }
 
     pendingRef.current = false
+    // Limit dedup set size
+    if (seenMsgIds.current.size > 500) {
+      seenMsgIds.current = new Set([...seenMsgIds.current].slice(-200))
+    }
   }, [wsMessages])
 
   return (
