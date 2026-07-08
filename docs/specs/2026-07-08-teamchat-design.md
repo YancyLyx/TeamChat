@@ -12,7 +12,45 @@
 
 **目标：** 把孤立的 AI agent 变成真正协作的团队，让开发者从"路由器"变成"观察者"。
 
-## 2. Team Members
+## 2. Why TeamChat — 与现有方案的关键差异
+
+2025–2026 年，多 AI agent 协作生态正在爆发。以下是与 TeamChat 愿景最相关的先行项目：
+
+| 项目 | 核心思路 | 仍存在的局限 |
+|---|---|---|
+| gojaja (过家家) | 文件系统协调层，角色分配 | 人类仍是仲裁者 |
+| Murmur | 通信总线，agent @mention | 停留在消息层，不管理完整工作流 |
+| Polynoia | IM 风格界面 + 角色库 | 人类驱动对话，agent 不会自主行动 |
+| Crewly | Web Dashboard + 技能系统 | 人类分配任务，没有自治争议解决 |
+| Agor | Canvas 式多 agent 画布 | 可视化为主，缺少自主协作逻辑 |
+| Agent Kanban | Agent-first 任务板 | 人类创建和分配任务 |
+
+### 现有方案的三个共同局限
+
+**1. 人类仍然是路由器**
+
+几乎所有项目都是"给你一个协调框架 + 你自己手动管理 agent"。人类负责分配任务、仲裁冲突、决定谁做什么。工具让沟通更方便了，但没有真正把人从"传话"中解放出来。
+
+**2. 没有自治的争议解决**
+
+Agent A 和 Agent B 意见不合时，现有方案无一提供自动化的辩论→投票→裁决机制。冲突最终还是要人类介入。
+
+**3. 没有真 GitHub 原生**
+
+Agent 不会自己开 Issue、自己 @ 队友、自己 assign、自己 Review PR、自己 close。GitHub 只是存储代码的地方，不是 agent 协作的战场。
+
+### TeamChat 的不同
+
+> **三个 agent 作为平等的团队成员自治协作 — 各自拥有 GitHub 身份，能自发开 Issue 讨论分歧、提 PR 竞争实现、通过 PR Review 投票裁决，像一个真正的开源团队一样工作。人类只需要在 Dashboard 上看着。**
+
+| | 现有方案 | TeamChat |
+|---|---|---|
+| 任务分配 | 人类分配 | **Agent 自己认领 + Router 自动分配** |
+| 冲突解决 | 人类仲裁 | **辩论 → 投票 → 自动裁决** |
+| GitHub 行为 | 人类操作 | **Agent 自主开 Issue/PR/Review/Merge** |
+| 人类角色 | 路由器 | **观察者** |
+
+## 3. Team Members
 
 | Agent | Name | CLI | Role | GitHub Identity |
 |---|---|---|---|---|
@@ -42,7 +80,7 @@
 - 项目文档一致性
 - Bug 修复
 
-## 3. Architecture
+## 4. Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -112,7 +150,7 @@
 3. **文件系统是共享内存** — Agent 通过 git repo 文件 + `.teamchat/` 通信
 4. **GitHub 是真相来源** — 任务=Issue, 实现=PR, 审查=Review, 合并=完成
 
-## 4. GitHub Identity Model
+## 5. GitHub Identity Model
 
 技术方案：Fine-grained PAT × 3（token 名称区分身份）
 
@@ -124,7 +162,7 @@ Token: teamchat-soso    → git config user.name "soso咪 (Cursor QA)"
 
 GitHub 上所有操作（Issue、PR、Review、Comment）都能看到哪个 agent 在执行。
 
-## 5. Communication Protocol
+## 6. Communication Protocol
 
 ### Agent-to-Agent 通信
 
@@ -173,7 +211,7 @@ cici咪 最终审查 → 合并 → 关闭 Issue
 Dashboard 全程可视化
 ```
 
-## 6. Four-Phase Roadmap
+## 7. Four-Phase Roadmap
 
 ### Phase 1: Handshake (握手)
 **目标：** 三只猫能在 GitHub 上以独立身份行动
@@ -229,7 +267,7 @@ Dashboard 全程可视化
 
 **完成标志：** 你可以完全作为观察者，agent 自主完成开发循环
 
-## 7. Documentation System
+## 8. Documentation System
 
 ```
 TeamChat/
@@ -257,7 +295,7 @@ TeamChat/
 2. **单页进度** — `PROGRESS.md` 是唯一频繁修改的文档
 3. **新想法 = 新文件** — 不在旧文档追加，而是创建新的 ADR 记录
 
-## 8. Tech Stack (Phase 2-3 decisions)
+## 9. Tech Stack (Phase 2-3 decisions)
 
 | 层面 | 候选技术 | 决策者 |
 |---|---|---|
@@ -269,7 +307,7 @@ TeamChat/
 
 技术栈具体选型在 Phase 2 开始时由 cici咪 写 ADR 决定。
 
-## 9. Success Metrics
+## 10. Success Metrics
 
 - **Phase 1:** 三个 agent 各自的 commit 出现在 GitHub 贡献图上
 - **Phase 2:** 一个完整的 Issue→PR→Review→Merge 循环，无需人类介入中间步骤
