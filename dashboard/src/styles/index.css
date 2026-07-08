@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+/* Custom scrollbar for the dark theme timeline */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #1f2937;
+}
+::-webkit-scrollbar-thumb {
+  background: #4b5563;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}
+
+/* Smooth transitions for task board movements */
+.task-card {
+  transition: all 0.2s ease-in-out;
+}
+.task-card:hover {
+  transform: translateY(-1px);
+}
+
+/* Tailwind v4 custom animations */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Connection status dot animation */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.status-dot.connected {
+  background-color: #22c55e;
+  box-shadow: 0 0 6px #22c55e66;
+}
+.status-dot.disconnected {
+  background-color: #ef4444;
+}
+.status-dot.idle {
+  background-color: #6b7280;
+}
+.status-dot.busy {
+  background-color: #f59e0b;
+  animation: pulse-dot 1.5s infinite;
+}
+.status-dot.success {
+  background-color: #22c55e;
+}
+.status-dot.fail {
+  background-color: #ef4444;
+}
+
+/* Task column drop zone */
+.drop-zone {
+  min-height: 200px;
+}
