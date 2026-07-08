@@ -24,3 +24,6 @@ dist/
 # Env
 .env
 .env.local
+teamchat.egg-info/
+.pytest_cache/
+__pycache__/

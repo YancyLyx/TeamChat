@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=75.8.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "teamchat"
+version = "0.1.0"
+description = "Multi-AI-Agent collaboration platform — turning isolated AI agents into a real team"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "cici咪 (Claude Architect)", email = "claude@teamchat.local" },
+    { name = "coco咪 (Codex Developer)", email = "codex@teamchat.local" },
+    { name = "soso咪 (Cursor QA)", email = "cursor@teamchat.local" },
+]
+license = { text = "MIT" }
+dependencies = [
+    "fastapi[standard]>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "sqlalchemy>=2.0.0",
+    "gitpython>=3.1.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "httpx>=0.28.0",
+    "websockets>=14.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.0",
+    "ruff>=0.11.0",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.25.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["engine*", "api*"]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
