@@ -4,17 +4,20 @@
 
 ## Current: Phase 2 — Collaborate 🔧
 
-### 🔴 In Progress
-- [ ] 搭建 Python 项目骨架 + 配置管理 → cici咪
-- [ ] Agent Runner (CLI 驱动层) → cici咪
-- [ ] GitHub Adapter → soso咪
-- [ ] Router (任务路由器) → cici咪
-- [ ] Message Bus (消息总线) → coco咪
-- [ ] Session Store (会话存储) → coco咪
-
 ### 🟢 Completed
 - [x] ADR-001: 技术栈选型 (Python/FastAPI/React/SQLite)
-- [x] Phase 1: Handshake 完成
+- [x] engine/config.py — Agent 身份定义 + 不可变配置
+- [x] engine/runner.py — CLI 驱动层 (asyncio.subprocess)
+- [x] engine/router.py — 声明式任务路由器
+- [x] engine/bus.py — 文件系统消息总线
+- [x] engine/github_client.py — GitHub API 适配器
+- [x] engine/store.py — SQLite 会话存储
+- [x] tests: 17 个冒烟测试全部通过
+
+### 🔴 In Progress
+- [ ] FastAPI 应用入口 + WebSocket → coco咪
+- [ ] CLI 驱动层集成测试（真实调用 agent CLI）→ soso咪
+- [ ] Agent 间首次协作：cici咪 开 Issue → coco咪 领任务 → soso咪 review
 
 ---
 
