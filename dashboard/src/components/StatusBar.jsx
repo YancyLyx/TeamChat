@@ -3,7 +3,7 @@ import AgentCard from './AgentCard.jsx'
 export default function StatusBar({ agents, sessionsByAgent }) {
   if (!agents || agents.length === 0) {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div data-testid="status-bar" className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[1, 2, 3].map((i) => (
           <div key={i} className="bg-gray-800/50 border border-gray-700/30 rounded-lg p-4 animate-pulse">
             <div className="h-4 bg-gray-700/50 rounded w-20 mb-3" />
