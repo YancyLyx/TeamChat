@@ -34,7 +34,7 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
       setLoading(true)
       const [agentsRes, sessionsRes] = await Promise.all([
         fetch(`${API_BASE}/agents`),
-        fetch(`${API_BASE}/sessions?limit=30`),
+        fetch(`${API_BASE}/sessions?limit=30&tag=prod`),
       ])
 
       if (!agentsRes.ok || !sessionsRes.ok) {
@@ -55,6 +55,14 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
         timestamp: new Date().toISOString(),
       })
 
+      // Add all sessions into seenMsgIds first (dedup base)
+      for (const s of sessionsData) {
+        if (s.id) {
+          seenMsgIds.current.add(`session-${s.id}-prompt`)
+          seenMsgIds.current.add(`session-${s.id}-result`)
+        }
+      }
+
       // Convert previous sessions to chat messages
       for (const s of sessionsData) {
         const agentName = s.agent_name
@@ -73,6 +81,11 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
           content: s.output.slice(0, 300),
           timestamp: s.finished_at,
         })
+      }
+
+      // Seed dedup set with initial message IDs to prevent duplicate on reconnect
+      for (const msg of initial) {
+        if (msg.id) seenMsgIds.current.add(msg.id)
       }
 
       setChatMessages(initial)

@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     exit_code   INTEGER NOT NULL DEFAULT -1,
     duration_ms INTEGER NOT NULL DEFAULT 0,
     token_usage TEXT    NOT NULL DEFAULT '{}',
+    tag         TEXT    NOT NULL DEFAULT 'prod',
     started_at  TEXT    NOT NULL,
     finished_at TEXT    NOT NULL,
     created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
@@ -34,6 +35,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_name);
 CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_type ON sessions(task_type);
+CREATE INDEX IF NOT EXISTS idx_sessions_tag ON sessions(tag);
 """
 
 
@@ -48,6 +50,7 @@ class SessionRow:
     exit_code: int
     duration_ms: int
     token_usage: dict
+    tag: str
     started_at: str
     finished_at: str
     created_at: str
@@ -94,26 +97,19 @@ class SessionStore:
 
     def log(self, agent_name: str, prompt: str, output: str,
             exit_code: int, duration_ms: int, token_usage: dict | None = None,
-            task_type: str = "general",
+            task_type: str = "general", tag: str = "prod",
             started_at: str = "", finished_at: str = "") -> int:
         """Record one agent invocation. Returns the new row ID."""
         now = datetime.now(timezone.utc).isoformat()
         self.conn.execute(
             """INSERT INTO sessions
                (agent_name, task_type, prompt, output, exit_code, duration_ms,
-                token_usage, started_at, finished_at, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                token_usage, tag, started_at, finished_at, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                agent_name,
-                task_type,
-                prompt,
-                output,
-                exit_code,
-                duration_ms,
-                json.dumps(token_usage or {}),
-                started_at or now,
-                finished_at or now,
-                now,
+                agent_name, task_type, prompt, output, exit_code,
+                duration_ms, json.dumps(token_usage or {}), tag,
+                started_at or now, finished_at or now, now,
             ),
         )
         self.conn.commit()
@@ -121,17 +117,18 @@ class SessionStore:
 
     # ---- Read ----
 
-    def get_recent(self, limit: int = 20, agent_name: str | None = None) -> list[SessionRow]:
-        """Get recent sessions, optionally filtered by agent."""
+    def get_recent(self, limit: int = 20, agent_name: str | None = None,
+                   tag: str = "prod") -> list[SessionRow]:
+        """Get recent sessions, optionally filtered by agent and tag."""
         if agent_name:
             rows = self.conn.execute(
-                "SELECT * FROM sessions WHERE agent_name = ? ORDER BY id DESC LIMIT ?",
-                (agent_name, limit),
+                "SELECT * FROM sessions WHERE agent_name = ? AND tag = ? ORDER BY id DESC LIMIT ?",
+                (agent_name, tag, limit),
             ).fetchall()
         else:
             rows = self.conn.execute(
-                "SELECT * FROM sessions ORDER BY id DESC LIMIT ?",
-                (limit,),
+                "SELECT * FROM sessions WHERE tag = ? ORDER BY id DESC LIMIT ?",
+                (tag, limit),
             ).fetchall()
         return [self._row_to_session(r) for r in rows]
 
@@ -186,9 +183,10 @@ class SessionStore:
             exit_code=row[5],
             duration_ms=row[6],
             token_usage=json.loads(row[7]) if isinstance(row[7], str) else row[7],
-            started_at=row[8],
-            finished_at=row[9],
-            created_at=row[10],
+            tag=row[8],
+            started_at=row[9],
+            finished_at=row[10],
+            created_at=row[11],
         )
 
 

@@ -11,9 +11,11 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from engine.config import ALL_AGENTS, AGENT_CICI
+from engine.config import ALL_AGENTS, AGENT_CICI, AGENT_COCO, AGENT_SOSO
 from engine.message_parser import parse_message, build_cici_analysis_prompt
 from engine.runner import AgentTask
+
+GREETING_KEYWORDS = {"大家好", "hello", "hi", "在吗", "有人在吗", "你好", "你们好", "嗨"}
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -45,6 +47,36 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
         "type": "chat_message",
         "data": {"kind": "human", "agent": "human", "content": content, "timestamp": now},
     })
+
+    # ---- GREETING: broadcast to all three agents ----
+    content_lower = content.lower().strip().rstrip("!！~～.。?？")
+    is_greeting = content_lower in GREETING_KEYWORDS or (
+        not parsed.mentions and len(content) <= 8 and
+        any(kw in content_lower for kw in ["大家好", "hello", "hi", "在吗", "你好", "你们好"])
+    )
+
+    if is_greeting:
+        runner = request.app.state.runner
+        await ws_mgr.broadcast({
+            "type": "system_message",
+            "data": {"content": "三只猫收到了你的问候，正在回复...", "timestamp": now},
+        })
+
+        greeting_msg = f"人类在聊天室发了 '{content}'。请简短回复一句问候/自我介绍（一句话即可），让人知道你在。"
+        for agent in (AGENT_CICI, AGENT_COCO, AGENT_SOSO):
+            task = AgentTask(prompt=greeting_msg, timeout_seconds=60)
+            result = await runner.run(agent, task)
+            await ws_mgr.broadcast({
+                "type": "chat_message",
+                "data": {
+                    "kind": "agent_reply",
+                    "agent": agent.name,
+                    "content": result.output[:500],
+                    "timestamp": now,
+                },
+            })
+
+        return ChatResponse(target_agent="all", task_prompt=content, status="greeting_broadcast")
 
     # ---- NO @mention: cici咪 analyzes ----
     if not parsed.mentions:
@@ -142,7 +174,7 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
 
     try:
         task = AgentTask(prompt=clean)
-        result = await runner.run(target, task)
+        result = await runner.run_with_context(target, task)
 
         session_id = store.log(
             agent_name=target.name, prompt=task.full_prompt(),

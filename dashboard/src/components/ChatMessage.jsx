@@ -36,6 +36,91 @@ function highlightMentions(text) {
   })
 }
 
+/**
+ * Parse agent message content into segments for rendering.
+ * Splits at THINKING: and TOOL_CALLS: line markers, wrapping
+ * each section in a collapsible <details> element.
+ */
+function parseSections(text) {
+  if (!text || typeof text !== 'string') return [{ type: 'text', content: text || '' }]
+
+  const lines = text.split('\n')
+  const segments = []
+  let current = []
+  let mode = 'text'
+  let modeHeading = ''
+
+  const flush = (nextMode) => {
+    if (current.length > 0) {
+      const joined = current.join('\n')
+      if (mode === 'thinking' || mode === 'tool_calls') {
+        segments.push({ type: mode, heading: modeHeading, content: joined })
+      } else {
+        segments.push({ type: 'text', content: joined })
+      }
+    }
+    current = []
+    mode = nextMode
+  }
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    // Match lines that start with THINKING: or TOOL_CALLS: (case-insensitive)
+    const thinkingMatch = trimmed.match(/^THINKING[\s]*:/i)
+    const toolMatch = trimmed.match(/^TOOL_CALLS[\s]*:/i)
+
+    if (thinkingMatch) {
+      flush('thinking')
+      modeHeading = 'THINKING'
+      const rest = line.slice(line.indexOf(':') + 1).trim()
+      if (rest) current.push(rest)
+    } else if (toolMatch) {
+      flush('tool_calls')
+      modeHeading = 'TOOL_CALLS'
+      const rest = line.slice(line.indexOf(':') + 1).trim()
+      if (rest) current.push(rest)
+    } else {
+      current.push(line)
+    }
+  }
+
+  // Flush remaining content
+  flush('text')
+
+  return segments
+}
+
+function RenderAgentContent({ text }) {
+  const segments = parseSections(text)
+  // Fast path: no collapsible sections
+  if (segments.length === 1 && segments[0].type === 'text') {
+    return <span className="whitespace-pre-wrap">{highlightMentions(segments[0].content)}</span>
+  }
+
+  return (
+    <div className="space-y-2">
+      {segments.map((seg, i) => {
+        if (seg.type === 'text') {
+          return <div key={i} className="whitespace-pre-wrap">{highlightMentions(seg.content)}</div>
+        }
+        const isThinking = seg.type === 'thinking'
+        return (
+          <details key={i} className="bg-gray-900/40 border border-gray-700/30 rounded-lg overflow-hidden">
+            <summary className="flex items-center gap-2 px-3 py-2 text-xs font-mono cursor-pointer hover:bg-gray-800/40 transition-colors select-none">
+              <span className="text-yellow-400">{isThinking ? '💭' : '🔧'}</span>
+              <span className="text-gray-300 font-semibold">{seg.heading}</span>
+              <span className="ml-auto text-gray-600 text-[10px]">展开/折叠</span>
+            </summary>
+            <div className="px-3 pb-2 pt-1 text-xs text-gray-400 font-mono leading-relaxed whitespace-pre-wrap border-t border-gray-700/20">
+              {seg.content}
+            </div>
+          </details>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function ChatMessage({ message }) {
   const { kind, agent, content, timestamp } = message
 
@@ -68,8 +153,8 @@ export default function ChatMessage({ message }) {
             <span className={`text-xs font-medium ${colors.name}`}>{agent}</span>
             <span className="text-[10px] text-gray-500 font-mono">{formatTime(timestamp)}</span>
           </div>
-          <div className={`${colors.bg} border ${colors.border} rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-gray-200 leading-relaxed whitespace-pre-wrap break-words`}>
-            {content}
+          <div className={`${colors.bg} border ${colors.border} rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-gray-200 leading-relaxed break-words`}>
+            <RenderAgentContent text={content} />
           </div>
         </div>
       </div>

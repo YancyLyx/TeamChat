@@ -29,6 +29,7 @@ class SessionRow(BaseModel):
     duration_ms: int
     started_at: str
     finished_at: str
+    tag: str = "prod"
     created_at: str
 
     @property
