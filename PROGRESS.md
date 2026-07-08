@@ -2,24 +2,39 @@
 
 > Last updated: 2026-07-08
 
-## Current: Phase 2 — Collaborate 🔧
+## ✅ Phase 2 Complete — Collaborate 🔧
 
-### 🟢 Completed
-- [x] ADR-001: 技术栈选型 (Python/FastAPI/React/SQLite)
-- [x] engine/config.py — Agent 身份定义 + 不可变配置
-- [x] engine/runner.py — CLI 驱动层 (asyncio.subprocess)
-- [x] engine/router.py — 声明式任务路由器
-- [x] engine/bus.py — 文件系统消息总线
-- [x] engine/github_client.py — GitHub API 适配器
-- [x] engine/store.py — SQLite 会话存储
-- [x] tests: 17 个冒烟测试全部通过
+| # | 任务 | 负责人 | 状态 |
+|---|---|---|---|
+| 1 | ADR-001 技术栈选型 | cici咪 | ✅ |
+| 2 | engine/ 核心引擎 | cici咪 | ✅ |
+| 3 | api/ FastAPI + WebSocket | coco咪 | ✅ |
+| 4 | tests/ 集成测试 | soso咪 | ✅ |
+| 5 | 代码审查 + 合并 | cici咪 | ✅ |
 
-### 🔴 In Progress
-- [ ] FastAPI 应用入口 + WebSocket → coco咪
-- [ ] CLI 驱动层集成测试（真实调用 agent CLI）→ soso咪
-- [ ] Agent 间首次协作：cici咪 开 Issue → coco咪 领任务 → soso咪 review
+**首次多 agent 协作成功:**
+```
+cici咪 创建 Issue #1 #2
+    → coco咪 实现 api/ (7 files, 427 lines) → commit 9518bd7
+    → soso咪 写测试 (2 files, 323 lines) → commit 79385b4
+    → cici咪 审查合并 → main
+```
+
+**测试:** 28/28 通过 (17 单元 + 11 集成)
 
 ---
 
-## Next: Phase 3 — Visualize
-Status: ⏳ Waiting for Phase 2 completion
+## 🔜 Next: Phase 3 — Visualize
+
+Status: ⏳ 等待启动
+
+**目标：** 建 Dashboard，实时展示 agent 工作状态
+
+| # | 任务 | 负责人 |
+|---|---|---|
+| 1 | Dashboard UI 设计 | coco咪 |
+| 2 | WebSocket 实时数据流对接 | coco咪 |
+| 3 | 实时任务板组件 | coco咪 |
+| 4 | Agent 状态面板 | coco咪 |
+| 5 | 对话日志时间线 | coco咪 |
+| 6 | E2E 测试 | soso咪 |
