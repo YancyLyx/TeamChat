@@ -22,7 +22,6 @@ from engine.runner import create_runner
 from engine.router import Router
 from engine.store import create_store
 from engine.bus import MessageBus
-from engine.worker import WorkerPool
 
 from api.routes import agents, sessions, tasks, chat
 
@@ -67,16 +66,11 @@ async def lifespan(app: FastAPI):
     bus = MessageBus(config)
     bus.init()
 
-    # Persistent agent workers for chat-room
-    pool = WorkerPool(config)
-    await pool.startup()
-
     app.state.config = config
     app.state.store = store
     app.state.runner = runner
     app.state.router = router_inst
     app.state.bus = bus
-    app.state.pool = pool
     app.state.ws_manager = manager
     app.state.loop = asyncio.get_running_loop()
 
@@ -87,10 +81,9 @@ async def lifespan(app: FastAPI):
         })
     bus.subscribe("all", on_bus_message)
 
-    logger.info("TeamChat API ready (with persistent workers)")
+    logger.info("TeamChat API ready")
     yield
 
-    await pool.shutdown()
     store.close()
     logger.info("TeamChat API shut down")
 
