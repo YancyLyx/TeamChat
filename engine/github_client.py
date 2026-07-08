@@ -67,7 +67,7 @@ class GitHubClient:
                     "Authorization": f"Bearer {self._token}",
                     "Accept": "application/vnd.github+json",
                     "X-GitHub-Api-Version": "2022-11-28",
-                    "User-Agent": f"TeamChat/{self.agent.name}",
+                    "User-Agent": f"TeamChat/{self.agent.cli}",
                 },
                 timeout=30.0,
             )
