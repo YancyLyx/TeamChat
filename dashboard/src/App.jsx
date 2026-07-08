@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useWebSocket } from './hooks/useWebSocket.js'
-import StatusBar from './components/StatusBar.jsx'
+import AgentCard from './components/AgentCard.jsx'
 import TaskBoard from './components/TaskBoard.jsx'
-import ActivityTimeline from './components/ActivityTimeline.jsx'
-import MessageLog from './components/MessageLog.jsx'
+import AgentPanel from './components/AgentPanel.jsx'
+import CompactTaskBoard from './components/CompactTaskBoard.jsx'
+import ChatRoom from './components/ChatRoom.jsx'
 
 const API_BASE = '/api'
 
@@ -22,9 +23,9 @@ export default function App() {
   // State
   const [agents, setAgents] = useState([])
   const [tasks, setTasks] = useState([])
-  const [timelineEvents, setTimelineEvents] = useState([])
-  const [messageLog, setMessageLog] = useState([])
-  const [sessionsByAgent, setSessionsByAgent] = useState({})
+  const [agSessions, setAgSessions] = useState({})
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(true)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -32,7 +33,7 @@ export default function App() {
   const { messages: wsMessages, connectionStatus } = useWebSocket()
   const lastMsgCountRef = useRef(0)
 
-  // Fetch initial data from REST API
+  // Fetch initial data
   const fetchInitialData = useCallback(async () => {
     try {
       setLoading(true)
@@ -45,24 +46,13 @@ export default function App() {
       ])
 
       if (!agentsRes.ok || !sessionsRes.ok || !statsRes.ok) {
-        throw new Error('API 请求失败')
+        throw new Error('API request failed')
       }
 
       const agentsData = await agentsRes.json()
       const sessionsData = await sessionsRes.json()
       const statsData = await statsRes.json()
 
-      setAgents(agentsData)
-
-      // Group sessions by agent
-      const byAgent = {}
-      for (const s of sessionsData) {
-        if (!byAgent[s.agent_name]) byAgent[s.agent_name] = []
-        byAgent[s.agent_name].push(s)
-      }
-      setSessionsByAgent(byAgent)
-
-      // Use statsData to enrich agents
       const enrichedAgents = agentsData.map((a) => ({
         ...a,
         total_tasks: statsData?.agents?.[a.name]?.total_calls ?? a.total_tasks ?? 0,
@@ -71,7 +61,13 @@ export default function App() {
       }))
       setAgents(enrichedAgents)
 
-      // Convert sessions to tasks
+      const byAgent = {}
+      for (const s of sessionsData) {
+        if (!byAgent[s.agent_name]) byAgent[s.agent_name] = []
+        byAgent[s.agent_name].push(s)
+      }
+      setAgSessions(byAgent)
+
       const initialTasks = sessionsData.map((s) => ({
         id: `session-${s.id}`,
         title: s.prompt.slice(0, 80),
@@ -84,18 +80,6 @@ export default function App() {
       }))
       setTasks(initialTasks)
 
-      // Create timeline events from sessions
-      const events = sessionsData.map((s) => ({
-        id: `session-ev-${s.id}`,
-        type: 'task_complete',
-        agent: s.agent_name,
-        description: `${s.agent_name} 完成任务 "${s.prompt.slice(0, 40)}..."`,
-        time: formatTime(s.finished_at),
-        success: s.exit_code === 0,
-        icon: s.exit_code === 0 ? '✅' : '❌',
-      }))
-      setTimelineEvents(events.reverse())
-
     } catch (err) {
       setError(err.message)
     } finally {
@@ -107,7 +91,7 @@ export default function App() {
     fetchInitialData()
   }, [fetchInitialData])
 
-  // Process WebSocket messages
+  // Process WebSocket messages for task/agent state updates
   useEffect(() => {
     if (wsMessages.length <= lastMsgCountRef.current) return
 
@@ -122,33 +106,17 @@ export default function App() {
         taskCounter += 1
         const taskId = `task-${taskCounter}`
 
-        // Add to tasks
         setTasks((prev) => [
           {
             id: taskId,
-            title: (data.prompt || '新任务').slice(0, 80),
+            title: (data.prompt || 'New task').slice(0, 80),
             agent: data.agent,
             status: 'running',
             time: now,
-            wsTaskId: data.task_id || taskId,  // track by server-assigned ID if available
           },
           ...prev,
         ])
 
-        // Add timeline event
-        setTimelineEvents((prev) => [
-          {
-            id: `ev-${taskId}`,
-            type: 'task_started',
-            agent: data.agent,
-            description: `${data.agent} 开始执行任务: "${(data.prompt || '').slice(0, 60)}..."`,
-            time: now,
-            icon: '🚀',
-          },
-          ...prev,
-        ])
-
-        // Mark agent busy
         setAgents((prev) =>
           prev.map((a) => (a.name === data.agent ? { ...a, is_busy: true } : a))
         )
@@ -157,181 +125,111 @@ export default function App() {
       if (msg.type === 'task_complete') {
         const data = msg.data || {}
 
-        // Update task status — match by server ID first, then by first running task for this agent
         setTasks((prev) => {
-          const serverTaskId = data.task_id || data.session_id ? `session-${data.session_id}` : null
+          const serverId = data.session_id ? `session-${data.session_id}` : null
           let matched = false
-          const updated = prev.map((t) => {
+          return prev.map((t) => {
             if (matched) return t
-            // Exact match by server ID
-            if (serverTaskId && t.id === serverTaskId) {
+            if (serverId && t.id === serverId) {
               matched = true
               return { ...t, status: data.success ? 'completed' : 'failed', exit_code: data.success ? 0 : 1, duration_ms: data.duration_ms, preview: data.output_preview }
             }
-            // Fallback: match first running task for this agent
-            if (!serverTaskId && t.agent === data.agent && t.status === 'running') {
+            if (!serverId && t.agent === data.agent && t.status === 'running') {
               matched = true
               return { ...t, status: data.success ? 'completed' : 'failed', exit_code: data.success ? 0 : 1, duration_ms: data.duration_ms, preview: data.output_preview }
             }
             return t
           })
-          return updated
         })
 
-        // Add timeline event
-        setTimelineEvents((prev) => [
-          {
-            id: `ev-complete-${Date.now()}`,
-            type: 'task_complete',
-            agent: data.agent,
-            description: `${data.agent} 完成任务 (${(data.duration_ms / 1000).toFixed(1)}s)`,
-            time: now,
-            success: data.success,
-            icon: data.success ? '✅' : '❌',
-          },
-          ...prev,
-        ])
-
-        // Mark agent free
         setAgents((prev) =>
           prev.map((a) => (a.name === data.agent ? { ...a, is_busy: false } : a))
         )
-      }
-
-      if (msg.type === 'message') {
-        const data = msg.data || {}
-
-        // Add to message log
-        setMessageLog((prev) => [
-          {
-            id: data.id || `msg-${Date.now()}`,
-            time: formatTime(data.timestamp) || now,
-            from: data.from,
-            to: data.to,
-            content: data.content || '',
-          },
-          ...prev,
-        ])
-
-        // Add timeline event
-        setTimelineEvents((prev) => [
-          {
-            id: `ev-msg-${Date.now()}`,
-            type: 'message',
-            agent: data.from || '系统',
-            description: `${data.from || '系统'} → ${data.to || 'all'}: "${(data.content || '').slice(0, 60)}..."`,
-            time: now,
-            icon: '📨',
-          },
-          ...prev,
-        ])
       }
     }
   }, [wsMessages])
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      {/* Header */}
-      <header className="border-b border-gray-800/80 bg-gray-950/95 sticky top-0 z-10 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl" data-testid="logo">🤖</span>
-            <div>
-              <h1 className="text-lg font-bold text-gray-100 tracking-tight" data-testid="app-title">TeamChat</h1>
-              <p className="text-[10px] text-gray-500 font-mono">实时 Agent 协作面板 v0.1</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 text-xs" data-testid="connection-status-wrapper">
-            <span className={`status-dot ${connectionStatus === 'connected' ? 'connected' : 'disconnected'}`} />
-            <span className={`font-mono ${connectionStatus === 'connected' ? 'text-green-400' : 'text-red-400'}`} data-testid="connection-status">
-              {connectionStatus === 'connected' ? '已连接' : connectionStatus === 'connecting' ? '连接中...' : '已断开'}
+    <div className="h-screen flex flex-col bg-gray-950 text-gray-100 overflow-hidden">
+      {/* ====== Top Header ====== */}
+      <header className="flex-shrink-0 border-b border-gray-800/80 bg-gray-950/95 px-4 py-2.5 flex items-center justify-between z-10">
+        <div className="flex items-center gap-3">
+          <span className="text-xl">🤖</span>
+          <h1 className="text-base font-bold text-gray-100 tracking-tight">TeamChat</h1>
+          <span className="text-[10px] text-gray-600 font-mono hidden sm:inline">v0.1</span>
+        </div>
+        <div className="flex items-center gap-3">
+          {/* Toggle left sidebar */}
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="text-xs text-gray-500 hover:text-gray-300 transition-colors px-2 py-1 rounded hover:bg-gray-800/50"
+            title="Toggle agent panel"
+          >
+            {sidebarOpen ? '▶️ Agents' : '◀️ Agents'}
+          </button>
+          {/* Toggle right sidebar */}
+          <button
+            onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
+            className="text-xs text-gray-500 hover:text-gray-300 transition-colors px-2 py-1 rounded hover:bg-gray-800/50"
+            title="Toggle task board"
+          >
+            {rightSidebarOpen ? '◀️ Tasks' : '▶️ Tasks'}
+          </button>
+          {/* Connection status */}
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className={`inline-block w-2 h-2 rounded-full ${
+              connectionStatus === 'connected' ? 'bg-green-500' :
+              connectionStatus === 'connecting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'
+            }`} />
+            <span className={`font-mono ${
+              connectionStatus === 'connected' ? 'text-green-400' :
+              connectionStatus === 'connecting' ? 'text-yellow-400' : 'text-red-400'
+            }`}>
+              {connectionStatus === 'connected' ? 'Connected' :
+               connectionStatus === 'connecting' ? 'Connecting...' : 'Offline'}
             </span>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
-        {/* Error banner */}
-        {error && (
-          <div className="bg-red-900/30 border border-red-800/40 rounded-lg px-4 py-3 text-sm text-red-300 flex items-center gap-2">
-            <span>⚠️</span>
-            <span>连接后端失败: {error} — 请确认后端在 localhost:8000 运行</span>
-            <button onClick={fetchInitialData} className="ml-auto text-xs underline hover:text-red-200">
-              重试
-            </button>
-          </div>
-        )}
-
-        {/* Loading skeleton */}
-        {loading && !error && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="bg-gray-800/50 border border-gray-700/30 rounded-lg p-4 animate-pulse">
-                  <div className="h-4 bg-gray-700/50 rounded w-20 mb-3" />
-                  <div className="h-6 bg-gray-700/50 rounded w-32 mb-2" />
-                  <div className="h-3 bg-gray-700/50 rounded w-24" />
-                </div>
-              ))}
-            </div>
-            <div className="bg-gray-900/40 border border-gray-700/30 rounded-lg p-8 animate-pulse">
-              <div className="h-4 bg-gray-700/50 rounded w-40 mb-4" />
-              <div className="h-20 bg-gray-700/30 rounded" />
-            </div>
-          </div>
-        )}
-
-        {/* Dashboard content */}
-        {!loading && (
-          <>
-            {/* Status Bar */}
-            <section>
-              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                Agent 状态
-              </h2>
-              <StatusBar agents={agents} sessionsByAgent={sessionsByAgent} />
-            </section>
-
-            {/* Grid: TaskBoard left, ActivityTimeline right */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <section className="lg:col-span-2">
-                <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                  任务看板
-                </h2>
-                <TaskBoard tasks={tasks} />
-              </section>
-              <section>
-                <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                  活动时间线
-                </h2>
-                <ActivityTimeline events={timelineEvents} />
-              </section>
-            </div>
-
-            {/* Message Log */}
-            <section>
-              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                Agent 对话日志
-              </h2>
-              <MessageLog messages={messageLog} />
-            </section>
-          </>
-        )}
-      </main>
-
-      {/* Footer */}
-      <footer className="border-t border-gray-800/60 mt-8">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between text-xs text-gray-600">
-          <span>TeamChat Dashboard — Multi-AI-Agent Collaboration Platform</span>
-          <span className="font-mono">
-            {connectionStatus === 'connected'
-              ? '🟢 已连接'
-              : connectionStatus === 'connecting'
-              ? '🟡 连接中...'
-              : '🔴 已断开'}
-          </span>
+      {/* ====== Error Banner ====== */}
+      {error && (
+        <div className="flex-shrink-0 bg-red-900/30 border-b border-red-800/40 px-4 py-2 text-xs text-red-300 flex items-center gap-2">
+          <span>Warning</span>
+          <span>{error}</span>
+          <button onClick={fetchInitialData} className="ml-auto underline hover:text-red-200">Retry</button>
         </div>
-      </footer>
+      )}
+
+      {/* ====== Main Content Area ====== */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Sidebar - Agent Status */}
+        <aside
+          className={`flex-shrink-0 border-r border-gray-800/60 bg-gray-900/50 overflow-y-auto transition-all duration-200 ${
+            sidebarOpen ? 'w-56' : 'w-0 overflow-hidden'
+          }`}
+        >
+          {sidebarOpen && (
+            <AgentPanel agents={agents} sessionsByAgent={agSessions} />
+          )}
+        </aside>
+
+        {/* Center - Chat Room */}
+        <main className="flex-1 flex flex-col overflow-hidden min-w-0">
+          <ChatRoom wsMessages={wsMessages} connectionStatus={connectionStatus} />
+        </main>
+
+        {/* Right Sidebar - Task Board */}
+        <aside
+          className={`flex-shrink-0 border-l border-gray-800/60 bg-gray-900/50 overflow-y-auto transition-all duration-200 ${
+            rightSidebarOpen ? 'w-72' : 'w-0 overflow-hidden'
+          }`}
+        >
+          {rightSidebarOpen && (
+            <CompactTaskBoard tasks={tasks} />
+          )}
+        </aside>
+      </div>
     </div>
   )
 }

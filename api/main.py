@@ -23,7 +23,7 @@ from engine.router import Router
 from engine.store import create_store
 from engine.bus import MessageBus
 
-from api.routes import agents, sessions, tasks
+from api.routes import agents, sessions, tasks, chat
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +108,7 @@ def create_app() -> FastAPI:
     app.include_router(agents.router)
     app.include_router(sessions.router)
     app.include_router(tasks.router)
+    app.include_router(chat.router)
 
     return app
 
