@@ -157,14 +157,18 @@ class AgentRunner:
             try:
                 parsed = json.loads(output)
                 if isinstance(parsed, dict):
-                    # Extract content from Claude's JSON response
-                    content_blocks = parsed.get("content", [])
-                    text_parts = []
-                    for block in content_blocks:
-                        if isinstance(block, dict) and block.get("type") == "text":
-                            text_parts.append(block.get("text", ""))
-                    if text_parts:
-                        output = "\n".join(text_parts)
+                    # Claude CLI --output-format json wraps text in "result" field
+                    if "result" in parsed and isinstance(parsed["result"], str):
+                        output = parsed["result"]
+                    # Fallback: Claude API content blocks
+                    elif "content" in parsed:
+                        content_blocks = parsed.get("content", [])
+                        text_parts = []
+                        for block in content_blocks:
+                            if isinstance(block, dict) and block.get("type") == "text":
+                                text_parts.append(block.get("text", ""))
+                        if text_parts:
+                            output = "\n".join(text_parts)
                     # Extract token usage
                     usage = parsed.get("usage", {})
                     if usage:
