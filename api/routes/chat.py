@@ -11,9 +11,13 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from engine.config import ALL_AGENTS, AGENT_CICI
+from engine.config import ALL_AGENTS, AGENT_CICI, AGENT_COCO, AGENT_SOSO
 from engine.message_parser import parse_message, build_cici_analysis_prompt
 from engine.runner import AgentTask
+
+# Keywords that trigger a greeting broadcast to all agents
+GREETING_KEYWORDS = {"大家好", "hello", "hi", "在吗", "有人在吗", "你好", "你们好", "嗨"}
+
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -45,6 +49,41 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
         "type": "chat_message",
         "data": {"kind": "human", "agent": "human", "content": content, "timestamp": now},
     })
+
+    # ---- GREETING: broadcast to all three agents ----
+    content_lower = content.lower().strip().rstrip("!！~～.。")
+    is_greeting = content_lower in GREETING_KEYWORDS or (
+        not parsed.mentions and len(content_lower) <= 8 and
+        any(kw in content_lower for kw in ["大家好", "hello", "hi", "在吗", "你好", "你们好"])
+    )
+
+    if is_greeting:
+        pool = request.app.state.pool
+        store = request.app.state.store
+
+        await ws_mgr.broadcast({
+            "type": "system_message",
+            "data": {"content": "三只猫收到了你的问候，正在回复...", "timestamp": now},
+        })
+
+        # Ask all three for a greeting
+        greeting_msg = f"人类在聊天室发了 '{content}'。请简短回复一句问候/自我介绍（一句话即可），让人知道你在。"
+        results = await pool.broadcast(greeting_msg)
+
+        for agent in [AGENT_CICI, AGENT_COCO, AGENT_SOSO]:
+            parsed_output = results.get(agent.name)
+            reply = parsed_output.result if parsed_output else f"{agent.name}暂时不在线"
+            await ws_mgr.broadcast({
+                "type": "chat_message",
+                "data": {
+                    "kind": "agent_reply",
+                    "agent": agent.name,
+                    "content": reply[:500],
+                    "timestamp": now,
+                },
+            })
+
+        return ChatResponse(target_agent="all", task_prompt=content, status="greeting_broadcast")
 
     # ---- NO @mention: cici咪 analyzes ----
     if not parsed.mentions:
@@ -130,40 +169,35 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
         raise HTTPException(status_code=400, detail="Could not resolve target agent")
 
     clean = parsed.cleaned_content or content
-    runner = request.app.state.runner
+    pool = request.app.state.pool
     store = request.app.state.store
-    router_inst = request.app.state.router
-    router_inst.mark_busy(target)
 
     await ws_mgr.broadcast({
         "type": "task_started",
         "data": {"agent": target.name, "prompt": clean[:200], "timestamp": now},
     })
 
+    router_inst.mark_busy(target)
     try:
-        task = AgentTask(prompt=clean)
-        result = await runner.run(target, task)
-
-        session_id = store.log(
-            agent_name=target.name, prompt=task.full_prompt(),
-            output=result.output, exit_code=result.exit_code,
-            duration_ms=result.duration_ms, token_usage=result.token_usage,
-            task_type="chat", started_at=result.started_at, finished_at=result.finished_at,
-        )
+        parsed_out = await pool.send(target, clean)
+        reply = parsed_out.result if parsed_out else f"{target.name} 暂时无法回复"
 
         await ws_mgr.broadcast({
             "type": "task_complete",
-            "data": {"agent": target.name, "session_id": session_id,
-                     "success": result.success, "duration_ms": result.duration_ms,
-                     "output_preview": result.output[:200], "timestamp": now},
-        })
-        await ws_mgr.broadcast({
-            "type": "chat_message",
-            "data": {"kind": "agent_reply", "agent": target.name, "content": result.output[:500],
-                     "timestamp": now, "session_id": session_id},
+            "data": {
+                "agent": target.name, "session_id": 0,
+                "success": True, "duration_ms": 0,
+                "output_preview": reply[:200], "timestamp": now,
+            },
         })
 
-        return ChatResponse(session_id=session_id, target_agent=target.name,
-                            task_prompt=clean, status="completed" if result.success else "failed")
+        await ws_mgr.broadcast({
+            "type": "chat_message",
+            "data": {"kind": "agent_reply", "agent": target.name, "content": reply[:500],
+                     "timestamp": now},
+        })
+
+        return ChatResponse(target_agent=target.name, task_prompt=clean,
+                            status="completed")
     finally:
         router_inst.mark_free(target)
