@@ -86,6 +86,10 @@ class SessionStore:
         self._conn = sqlite3.connect(str(self.db_path))
         self._conn.execute("PRAGMA journal_mode=WAL")  # concurrent reads
         self._conn.executescript(SCHEMA)
+        # Migrate older databases missing the tag column
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(sessions)")}
+        if "tag" not in columns:
+            self._conn.execute("ALTER TABLE sessions ADD COLUMN tag TEXT NOT NULL DEFAULT 'prod'")
         self._conn.commit()
 
     def close(self):
@@ -118,18 +122,22 @@ class SessionStore:
     # ---- Read ----
 
     def get_recent(self, limit: int = 20, agent_name: str | None = None,
-                   tag: str = "prod") -> list[SessionRow]:
-        """Get recent sessions, optionally filtered by agent and tag."""
+                   tag: str | None = None) -> list[SessionRow]:
+        """Get recent sessions, optionally filtered by agent and/or tag."""
+        query = "SELECT * FROM sessions"
+        conditions: list[str] = []
+        params: list = []
         if agent_name:
-            rows = self.conn.execute(
-                "SELECT * FROM sessions WHERE agent_name = ? AND tag = ? ORDER BY id DESC LIMIT ?",
-                (agent_name, tag, limit),
-            ).fetchall()
-        else:
-            rows = self.conn.execute(
-                "SELECT * FROM sessions WHERE tag = ? ORDER BY id DESC LIMIT ?",
-                (tag, limit),
-            ).fetchall()
+            conditions.append("agent_name = ?")
+            params.append(agent_name)
+        if tag:
+            conditions.append("tag = ?")
+            params.append(tag)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        rows = self.conn.execute(query, params).fetchall()
         return [self._row_to_session(r) for r in rows]
 
     def get_by_id(self, session_id: int) -> SessionRow | None:

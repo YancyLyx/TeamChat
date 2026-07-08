@@ -172,6 +172,11 @@ def e2e_servers(tmp_path_factory):
     (e2e_root / ".teamchat" / "messages").mkdir(parents=True)
 
     restore_runner = install_mock_runner(project_root=e2e_root)
+
+    import api.main as api_main_module
+    import engine.runner as runner_module
+
+    api_main_module.create_runner = runner_module.create_runner
     from api.main import app as fastapi_app
 
     api_config = uvicorn.Config(

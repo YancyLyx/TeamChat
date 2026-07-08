@@ -36,7 +36,7 @@ class ChatResponse(BaseModel):
 async def chat_endpoint(request: Request, chat_req: ChatRequest):
     content = chat_req.content.strip()
     if not content:
-        raise HTTPStatusException(status_code=400, detail="Message cannot be empty")
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
 
     parsed = parse_message(content)
     ws_mgr = request.app.state.ws_manager

@@ -25,8 +25,10 @@ DASHBOARD_PORT = 5173
 API_URL = f"http://{API_HOST}:{API_PORT}"
 DASHBOARD_URL = f"http://{API_HOST}:{DASHBOARD_PORT}"
 
-MOCK_RUN_DELAY_SECONDS = 1.2
+MOCK_RUN_DELAY_SECONDS = 0.8
+MOCK_GREETING_DELAY_SECONDS = 0.15
 MOCK_AGENT_REPLY = "Hello from mock agent!"
+MOCK_GREETING_REPLY_SUFFIX = "你好！我在。"
 
 
 def find_free_port() -> int:
@@ -60,8 +62,106 @@ def inject_bus_message(app, content: str) -> None:
     app.state.loop.call_soon_threadsafe(_send)
 
 
+def seed_session(
+    app,
+    *,
+    agent_name: str,
+    prompt: str,
+    output: str,
+    tag: str = "prod",
+) -> int:
+    """Insert a session row on the API event loop (for tag-filter E2E tests)."""
+    result_holder: dict[str, int] = {}
+
+    def _write() -> None:
+        result_holder["id"] = app.state.store.log(
+            agent_name=agent_name,
+            prompt=prompt,
+            output=output,
+            exit_code=0,
+            duration_ms=100,
+            task_type="e2e_seed",
+            tag=tag,
+        )
+
+    app.state.loop.call_soon_threadsafe(_write)
+    deadline = time.time() + 5
+    while "id" not in result_holder and time.time() < deadline:
+        time.sleep(0.05)
+    if "id" not in result_holder:
+        raise RuntimeError("Timed out seeding session row")
+    return result_holder["id"]
+
+
 class E2EMockRunner(AgentRunner):
     """Deterministic runner for Dashboard E2E tests."""
+
+    def _build_result(
+        self,
+        agent: AgentIdentity,
+        task: AgentTask,
+        output: str,
+        *,
+        exit_code: int = 0,
+        duration_ms: int = 100,
+    ) -> AgentResult:
+        now = datetime.now(timezone.utc).isoformat()
+        return AgentResult(
+            agent_name=agent.name,
+            task_prompt=task.full_prompt(),
+            output=output,
+            exit_code=exit_code,
+            duration_ms=duration_ms,
+            token_usage={"input_tokens": 10, "output_tokens": 5} if exit_code == 0 else {},
+            started_at=now,
+            finished_at=now,
+        )
+
+    async def _mock_execute(
+        self,
+        agent: AgentIdentity,
+        task: AgentTask,
+        *,
+        use_continue: bool = False,
+    ) -> AgentResult:
+        started_ms = time.monotonic()
+        prompt = task.full_prompt()
+        prompt_lower = prompt.lower()
+
+        if "人类在聊天室发了" in prompt:
+            await asyncio.sleep(MOCK_GREETING_DELAY_SECONDS)
+            output = f"{agent.name} {MOCK_GREETING_REPLY_SUFFIX}"
+            duration_ms = int((time.monotonic() - started_ms) * 1000)
+            return self._build_result(agent, task, output, duration_ms=duration_ms)
+
+        if "你是 TeamChat 项目的架构师" in prompt:
+            await asyncio.sleep(MOCK_GREETING_DELAY_SECONDS)
+            output = "ANSWER: TeamChat 运行正常，三只猫在线。"
+            duration_ms = int((time.monotonic() - started_ms) * 1000)
+            return self._build_result(agent, task, output, duration_ms=duration_ms)
+
+        failed = "fail" in prompt_lower or "error" in prompt_lower
+        if failed:
+            await asyncio.sleep(MOCK_RUN_DELAY_SECONDS)
+            duration_ms = int((time.monotonic() - started_ms) * 1000)
+            return self._build_result(
+                agent, task, "Mock task failed", exit_code=1, duration_ms=duration_ms
+            )
+
+        if "E2E_COLLAPSE" in prompt:
+            output = (
+                "THINKING: analyzing the request\n"
+                "TOOL_CALLS: read_file(path='README.md')\n"
+                f"{MOCK_AGENT_REPLY}"
+            )
+        elif use_continue:
+            output = f"[continue] {MOCK_AGENT_REPLY}"
+        else:
+            output = MOCK_AGENT_REPLY
+
+        await asyncio.sleep(MOCK_RUN_DELAY_SECONDS)
+        duration_ms = int((time.monotonic() - started_ms) * 1000)
+        return self._build_result(agent, task, output, duration_ms=duration_ms)
 
     async def run(
         self,
@@ -69,26 +169,18 @@ class E2EMockRunner(AgentRunner):
         task: AgentTask,
         working_dir: Path | None = None,
     ) -> AgentResult:
-        started_at = datetime.now(timezone.utc)
-        started_ms = time.monotonic()
-        await asyncio.sleep(MOCK_RUN_DELAY_SECONDS)
+        return await self._mock_execute(agent, task, use_continue=False)
 
-        prompt_lower = task.prompt.lower()
-        failed = "fail" in prompt_lower or "error" in prompt_lower
-        output = "Mock task failed" if failed else MOCK_AGENT_REPLY
-        exit_code = 1 if failed else 0
-        duration_ms = int((time.monotonic() - started_ms) * 1000)
-
-        return AgentResult(
-            agent_name=agent.name,
-            task_prompt=task.full_prompt(),
-            output=output,
-            exit_code=exit_code,
-            duration_ms=duration_ms,
-            token_usage={"input_tokens": 10, "output_tokens": 5} if not failed else {},
-            started_at=started_at.isoformat(),
-            finished_at=datetime.now(timezone.utc).isoformat(),
-        )
+    async def run_with_context(
+        self,
+        agent: AgentIdentity,
+        task: AgentTask,
+        working_dir: Path | None = None,
+    ) -> AgentResult:
+        use_continue = self._has_session(agent)
+        result = await self._mock_execute(agent, task, use_continue=use_continue)
+        self._sessions[agent.name] = True
+        return result
 
 
 def install_mock_runner(project_root: Path | None = None):
@@ -119,9 +211,19 @@ def install_mock_runner(project_root: Path | None = None):
     config_mod.load_config = isolated_load_config
     runner_mod.create_runner = mock_create_runner
 
+    # api.main imports create_runner by value — re-bind after patch
+    import sys
+
+    api_main = sys.modules.get("api.main")
+    original_api_create = getattr(api_main, "create_runner", None) if api_main else None
+    if api_main is not None:
+        api_main.create_runner = mock_create_runner
+
     def restore():
         config_mod.load_config = original_load
         runner_mod.create_runner = original_create
+        if api_main is not None and original_api_create is not None:
+            api_main.create_runner = original_api_create
 
     return restore
 

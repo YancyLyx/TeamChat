@@ -155,13 +155,25 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
       if (msg.type === 'chat_message') {
         const data = msg.data || {}
         // Dedup: skip if this message ID was already seen
-        const msgId = data.id || msg.type
+        const msgId = data.id || `chat-${data.kind}-${data.agent}-${data.timestamp}-${(data.content || '').slice(0, 32)}`
         if (msgId && seenMsgIds.current.has(msgId)) continue
         if (msgId) seenMsgIds.current.add(msgId)
         additions.push({
-          id: data.id || `chat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          id: msgId,
           kind: data.kind || 'agent_message',
           agent: data.agent || 'system',
+          content: data.content || '',
+          timestamp: data.timestamp || new Date().toISOString(),
+        })
+      } else if (msg.type === 'system_message') {
+        const data = msg.data || {}
+        const msgId = data.id || `sys-${data.timestamp}-${(data.content || '').slice(0, 32)}`
+        if (msgId && seenMsgIds.current.has(msgId)) continue
+        if (msgId) seenMsgIds.current.add(msgId)
+        additions.push({
+          id: msgId,
+          kind: 'system',
+          agent: 'system',
           content: data.content || '',
           timestamp: data.timestamp || new Date().toISOString(),
         })
