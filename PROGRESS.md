@@ -2,41 +2,37 @@
 
 > Last updated: 2026-07-08
 
-## ✅ Phase 3 Complete — Visualize 🖥️
+## Current: Phase 4 — Autonomy 🔧
 
+### 🔴 In Progress (ADR-002)
 | # | 任务 | 负责人 | 状态 |
 |---|---|---|---|
-| 1 | ADR-001 技术栈选型 | cici咪 | ✅ |
-| 2 | engine/ 核心引擎 | cici咪 | ✅ |
-| 3 | api/ FastAPI + WebSocket | coco咪 | ✅ |
-| 4 | tests/ 集成测试 | soso咪 | ✅ |
-| 5 | dashboard/ React Dashboard (13 files) | coco咪 | ✅ |
-| 6 | Code review + 修复 (PR #5) | soso咪 → cici咪 | ✅ |
-| 7 | E2E 测试 (8 tests, 全部通过) | soso咪 | ✅ |
-| 8 | PR Review + 合并 (PR #6) | cici咪 | ✅ |
+| 1 | `engine/worker.py` Persistent Worker | cici咪 | 🔴 |
+| 2 | WorkerPool + 生命周期管理 | cici咪 | 🔴 |
+| 3 | 打招呼广播路由 | cici咪 | 🔴 |
+| 4 | CLI 输出解析 | cici咪 | 🔴 |
+| 5 | 会话 Tag 隔离 | cici咪 | 🔴 |
+| 6 | ChatRoom 折叠区 + 历史过滤 | coco咪 | 🔴 |
+| 7 | E2E 测试更新 | soso咪 | 🔴 |
 
-**首次完整 PR 工作流:**
-```
-Issue #3 (coco咪) → PR #5 → soso咪 review (Request Changes)
-    → cici咪 修复 7 个问题 → merge ✅
+### 🟢 Completed (Phase 4 so far)
+- [x] 聊天室架构设计 (ADR-002)
+- [x] `engine/message_parser.py`
+- [x] `api/routes/chat.py` (basic)
+- [x] Chat-room Dashboard (MVP)
+- [x] Chat-room E2E tests (4 tests)
 
-Issue #4 (soso咪) → PR #6 → cici咪 review (Approved) → merge ✅
-```
-
-**测试:** 28 通过 (17 单元 + 11 集成 + 8 E2E [待运行])
+### 🐛 Known Bugs (Phase 4)
+| Bug | Status |
+|---|---|
+| 消息显示两次 | ✅ Fixed |
+| 中文输入 Enter 误触发送 | ✅ Fixed |
+| cici咪 输出裸 JSON | ✅ Fixed |
+| 无 @mention 没回复 | 🔴 等 Worker 实现 |
+| 测试数据混入历史 | 🔴 等 session tagging |
 
 ---
 
-## 🔜 Next: Phase 4 — Autonomy
+## Phase 3 ✅ | Phase 2 ✅ | Phase 1 ✅
 
-Status: ⏳ 等待启动
-
-**目标：** 实现完整的自治协作闭环
-
-| # | 任务 | 负责人 |
-|---|---|---|
-| 1 | Conflict Resolver (辩论→投票→裁决) | cici咪 |
-| 2 | 自动任务分配 (基于 agent 负载) | cici咪 |
-| 3 | 自愈机制 (失败重试/转派) | soso咪 |
-| 4 | Git Worktree 隔离 | soso咪 |
-| 5 | MCP 接口（对外接入） | coco咪 |
+Details: `docs/phases/`

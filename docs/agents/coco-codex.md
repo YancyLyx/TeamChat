@@ -40,4 +40,4 @@
 
 ## 当前任务
 
-Phase 1: 还没轮到她。等 cici咪 把基础搭好，她的主场在 Phase 2（API 层）和 Phase 3（Dashboard）。
+> 见 [PROGRESS.md](../../PROGRESS.md) — 当前 Phase 和负责的任务。

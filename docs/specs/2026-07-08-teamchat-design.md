@@ -170,14 +170,15 @@ GitHub 上所有操作（Issue、PR、Review、Comment）都能看到哪个 agen
 
 ```
 .teamchat/
-├── messages/          ← 消息文件（JSON）
-│   ├── msg-001.json
-│   └── msg-002.json
-├── sessions/          ← 会话日志
-│   ├── cici-2026-07-08-001.json
-│   └── coco-2026-07-08-001.json
-└── state.json         ← 全局状态（当前任务、agent 状态）
+├── messages/          ← MessageBus 消息文件（JSON）
+│   ├── msg-0001.json
+│   └── msg-0002.json
+├── sessions.db        ← SessionStore（SQLite，WAL 模式）
+├── sessions.db-wal    ← SQLite WAL 日志
+└── identity-*.txt     ← Phase 1 身份验证标记文件
 ```
+
+> 注意：设计初期规划用 JSON 文件存储会话。实际实现改用 SQLite（ADR-001），提供更好的并发和查询支持。
 
 ### 消息格式
 
@@ -434,4 +435,6 @@ TeamChat/
 
 ---
 
-**签字确认：** Human ✅ | cici咪 (待) | coco咪 (待) | soso咪 (待)
+**签字确认：** Human ✅ | cici咪 ✅ | coco咪 ✅ | soso咪 ✅
+
+> 最后更新: 2026-07-08 Phase 4。签名为首次设计确认。

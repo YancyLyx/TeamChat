@@ -41,4 +41,4 @@
 
 ## 当前任务
 
-Phase 1: 等 cici咪 写完基础文档后，验证每个 agent 能独立 git commit & push。
+> 见 [PROGRESS.md](../../PROGRESS.md) — 当前 Phase 和负责的任务。

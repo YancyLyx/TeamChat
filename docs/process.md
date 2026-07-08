@@ -72,3 +72,33 @@ test: chat-room E2E tests (#9)
 | `@soso咪 ...` | → soso咪 |
 | `大家好 / hello / 在吗` | → 三只猫都回复 |
 | 其他（无 @mention） | → cici咪 分析 → 路由 |
+
+## 文档维护规则
+
+**文档不过时比文档写得好更重要。** 以下规则确保每条文档都知道谁在维护、什么时候更新。
+
+### 谁管什么
+
+| 文档 | 什么时候更新 | 谁负责 |
+|---|---|---|
+| `PROGRESS.md` | **每个 session 结束时** | cici咪 |
+| `docs/specs/*.md` | 写后锁定，不修改。有变化写新 ADR | 全员（读），cici咪（写 ADR） |
+| `docs/decisions/*.md` | 技术决策时新建 | cici咪 |
+| `docs/phases/*.md` | Phase 完成时更新状态 | cici咪 |
+| `docs/agents/*.md` | 不存动态信息。角色/性格改动时更新 | cici咪 |
+| `docs/architecture.md` | 架构变更时 | cici咪 |
+| `docs/process.md` | 流程变更时 | 全员讨论后 cici咪 更新 |
+| `README.md` | Phase 切换时 | cici咪 |
+| `CLAUDE.md` + `AGENTS.md` | 项目基础变更时 | cici咪 |
+
+### 三条铁律（重申）
+
+1. **动态信息放 PROGRESS.md** — 角色卡里不写"当前任务"，spec 里不写"当前状态"
+2. **spec 写后锁定** — 设计文档只读。新想法 → 新建 ADR
+3. **每个 commit 检查相关文档是否过时** — 实现跟文档不一致 = bug
+
+### Agent 职责
+
+- **cici咪**：每次 session 结束时更新 `PROGRESS.md`，检查所有文档是否还准确
+- **coco咪+soso咪**：如果发现文档和代码不一致，开 Issue 标记 `#docs-drift`
+- **人类**：review 时抽查文档准确性

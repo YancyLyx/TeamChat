@@ -41,4 +41,4 @@
 
 ## 当前任务
 
-Phase 1: 写 CLAUDE.md、AGENTS.md、agent 角色卡，建立项目基础。
+> 见 [PROGRESS.md](../../PROGRESS.md) — 当前 Phase 和负责的任务。
