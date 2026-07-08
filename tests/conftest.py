@@ -150,12 +150,23 @@ def e2e_servers(tmp_path_factory):
     import uvicorn
 
     from tests.e2e_support import (
-        API_URL,
-        DASHBOARD_URL,
+        find_free_port,
         install_mock_runner,
+        release_port,
         start_vite_dev_server,
         wait_for_http,
     )
+
+    release_port(8000)
+    release_port(5173)
+
+    api_port = find_free_port()
+    dashboard_port = find_free_port()
+    while dashboard_port == api_port:
+        dashboard_port = find_free_port()
+
+    api_url = f"http://127.0.0.1:{api_port}"
+    dashboard_url = f"http://127.0.0.1:{dashboard_port}"
 
     e2e_root = tmp_path_factory.mktemp("teamchat_e2e")
     (e2e_root / ".teamchat" / "messages").mkdir(parents=True)
@@ -166,7 +177,7 @@ def e2e_servers(tmp_path_factory):
     api_config = uvicorn.Config(
         fastapi_app,
         host="127.0.0.1",
-        port=8000,
+        port=api_port,
         log_level="warning",
     )
     api_server = uvicorn.Server(api_config)
@@ -175,13 +186,13 @@ def e2e_servers(tmp_path_factory):
 
     vite_proc = None
     try:
-        wait_for_http(f"{API_URL}/api/health")
-        vite_proc = start_vite_dev_server(DASHBOARD_DIR)
-        wait_for_http(DASHBOARD_URL)
+        wait_for_http(f"{api_url}/api/health")
+        vite_proc = start_vite_dev_server(DASHBOARD_DIR, api_port, dashboard_port)
+        wait_for_http(dashboard_url)
 
         yield {
-            "api_url": API_URL,
-            "dashboard_url": DASHBOARD_URL,
+            "api_url": api_url,
+            "dashboard_url": dashboard_url,
             "app": fastapi_app,
             "api_server": api_server,
             "api_thread": api_thread,

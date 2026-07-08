@@ -7,6 +7,8 @@ Provides a mock AgentRunner so tests do not invoke real agent CLIs.
 from __future__ import annotations
 
 import asyncio
+import os
+import socket
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -24,6 +26,21 @@ API_URL = f"http://{API_HOST}:{API_PORT}"
 DASHBOARD_URL = f"http://{API_HOST}:{DASHBOARD_PORT}"
 
 MOCK_RUN_DELAY_SECONDS = 1.2
+MOCK_AGENT_REPLY = "Hello from mock agent!"
+
+
+def find_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def release_port(port: int) -> None:
+    subprocess.run(
+        ["sh", "-c", f"lsof -ti:{port} | xargs kill -9 2>/dev/null || true"],
+        check=False,
+        capture_output=True,
+    )
 
 
 def inject_bus_message(app, content: str) -> None:
@@ -58,7 +75,7 @@ class E2EMockRunner(AgentRunner):
 
         prompt_lower = task.prompt.lower()
         failed = "fail" in prompt_lower or "error" in prompt_lower
-        output = "Mock task failed" if failed else "Hello from mock agent!"
+        output = "Mock task failed" if failed else MOCK_AGENT_REPLY
         exit_code = 1 if failed else 0
         duration_ms = int((time.monotonic() - started_ms) * 1000)
 
@@ -135,12 +152,15 @@ def ensure_dashboard_deps(dashboard_dir: Path) -> None:
     )
 
 
-def start_vite_dev_server(dashboard_dir: Path) -> subprocess.Popen[str]:
+def start_vite_dev_server(dashboard_dir: Path, api_port: int, dashboard_port: int) -> subprocess.Popen[str]:
     ensure_dashboard_deps(dashboard_dir)
+    env = os.environ.copy()
+    env["VITE_API_PORT"] = str(api_port)
     return subprocess.Popen(
-        ["npm", "run", "dev", "--", "--host", API_HOST, "--port", str(DASHBOARD_PORT)],
+        ["npm", "run", "dev", "--", "--host", API_HOST, "--port", str(dashboard_port)],
         cwd=dashboard_dir,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         text=True,
+        env=env,
     )
