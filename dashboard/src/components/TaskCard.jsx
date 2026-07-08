@@ -12,7 +12,7 @@ export default function TaskCard({ task }) {
     : 'border-l-gray-500/60'
 
   return (
-    <div className={`task-card bg-gray-800/60 border border-gray-700/40 border-l-2 ${statusColor} rounded-lg p-3`}>
+    <div data-testid="task-card" className={`task-card bg-gray-800/60 border border-gray-700/40 border-l-2 ${statusColor} rounded-lg p-3`}>
       <div className="flex items-start gap-2">
         <span className="text-sm mt-0.5">{statusIcon}</span>
         <div className="flex-1 min-w-0">

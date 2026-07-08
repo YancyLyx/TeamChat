@@ -62,12 +62,21 @@ export default function App() {
       }
       setSessionsByAgent(byAgent)
 
+      // Use statsData to enrich agents
+      const enrichedAgents = agentsData.map((a) => ({
+        ...a,
+        total_tasks: statsData?.agents?.[a.name]?.total_calls ?? a.total_tasks ?? 0,
+        success_rate: statsData?.agents?.[a.name]?.success_rate ?? a.success_rate ?? 0,
+        avg_duration_ms: statsData?.agents?.[a.name]?.avg_duration_ms ?? a.avg_duration_ms ?? 0,
+      }))
+      setAgents(enrichedAgents)
+
       // Convert sessions to tasks
       const initialTasks = sessionsData.map((s) => ({
         id: `session-${s.id}`,
         title: s.prompt.slice(0, 80),
         agent: s.agent_name,
-        status: s.exit_code === 0 ? 'completed' : 'completed',
+        status: s.exit_code === 0 ? 'completed' : 'failed',
         exit_code: s.exit_code,
         duration_ms: s.duration_ms,
         time: formatTime(s.started_at),
@@ -121,6 +130,7 @@ export default function App() {
             agent: data.agent,
             status: 'running',
             time: now,
+            wsTaskId: data.task_id || taskId,  // track by server-assigned ID if available
           },
           ...prev,
         ])
@@ -147,14 +157,26 @@ export default function App() {
       if (msg.type === 'task_complete') {
         const data = msg.data || {}
 
-        // Update task status
-        setTasks((prev) =>
-          prev.map((t) =>
-            t.agent === data.agent && t.status === 'running'
-              ? { ...t, status: 'completed', exit_code: data.success ? 0 : 1, duration_ms: data.duration_ms, preview: data.output_preview }
-              : t
-          )
-        )
+        // Update task status — match by server ID first, then by first running task for this agent
+        setTasks((prev) => {
+          const serverTaskId = data.task_id || data.session_id ? `session-${data.session_id}` : null
+          let matched = false
+          const updated = prev.map((t) => {
+            if (matched) return t
+            // Exact match by server ID
+            if (serverTaskId && t.id === serverTaskId) {
+              matched = true
+              return { ...t, status: data.success ? 'completed' : 'failed', exit_code: data.success ? 0 : 1, duration_ms: data.duration_ms, preview: data.output_preview }
+            }
+            // Fallback: match first running task for this agent
+            if (!serverTaskId && t.agent === data.agent && t.status === 'running') {
+              matched = true
+              return { ...t, status: data.success ? 'completed' : 'failed', exit_code: data.success ? 0 : 1, duration_ms: data.duration_ms, preview: data.output_preview }
+            }
+            return t
+          })
+          return updated
+        })
 
         // Add timeline event
         setTimelineEvents((prev) => [
@@ -213,15 +235,15 @@ export default function App() {
       <header className="border-b border-gray-800/80 bg-gray-950/95 sticky top-0 z-10 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-2xl">🤖</span>
+            <span className="text-2xl" data-testid="logo">🤖</span>
             <div>
-              <h1 className="text-lg font-bold text-gray-100 tracking-tight">TeamChat</h1>
+              <h1 className="text-lg font-bold text-gray-100 tracking-tight" data-testid="app-title">TeamChat</h1>
               <p className="text-[10px] text-gray-500 font-mono">实时 Agent 协作面板 v0.1</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex items-center gap-2 text-xs" data-testid="connection-status-wrapper">
             <span className={`status-dot ${connectionStatus === 'connected' ? 'connected' : 'disconnected'}`} />
-            <span className={`font-mono ${connectionStatus === 'connected' ? 'text-green-400' : 'text-red-400'}`}>
+            <span className={`font-mono ${connectionStatus === 'connected' ? 'text-green-400' : 'text-red-400'}`} data-testid="connection-status">
               {connectionStatus === 'connected' ? '已连接' : connectionStatus === 'connecting' ? '连接中...' : '已断开'}
             </span>
           </div>

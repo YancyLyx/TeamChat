@@ -16,6 +16,7 @@ export default function AgentCard({ agent, sessions = [] }) {
 
   return (
     <div
+      data-testid="agent-card"
       className={`bg-gray-800/80 border rounded-lg p-4 cursor-pointer transition-all
         ${expanded ? 'border-blue-500/50 col-span-3' : 'border-gray-700/50 hover:border-gray-600'}`}
       onClick={() => setExpanded(!expanded)}

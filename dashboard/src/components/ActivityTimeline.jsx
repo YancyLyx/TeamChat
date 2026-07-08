@@ -1,7 +1,7 @@
 export default function ActivityTimeline({ events }) {
   if (!events || events.length === 0) {
     return (
-      <div className="bg-gray-900/40 border border-gray-700/30 rounded-lg p-6 text-center">
+      <div data-testid="activity-timeline" className="bg-gray-900/40 border border-gray-700/30 rounded-lg p-6 text-center">
         <p className="text-gray-500 text-sm">等待活动事件……</p>
       </div>
     )

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 
-const WS_URL = `ws://${window.location.hostname}:8000/ws`
+// Use relative path → Vite proxy handles routing to API server
+const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
 const MAX_RETRIES = 5
+const MAX_MESSAGES = 500
 const BASE_DELAY = 1000
 
 /**
@@ -34,7 +36,11 @@ export function useWebSocket() {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data)
-        setMessages((prev) => [...prev, msg])
+        setMessages((prev) => {
+          const next = [...prev, msg]
+          // Ring buffer: keep only last MAX_MESSAGES
+          return next.length > MAX_MESSAGES ? next.slice(-MAX_MESSAGES) : next
+        })
       } catch {
         // ignore malformed messages
       }
