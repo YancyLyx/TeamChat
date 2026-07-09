@@ -31,29 +31,36 @@
 
 ## 1. 真实操作流程（逐帧）
 
-### 1.1 会话管理（已实测验证 ✅）
+### 1.1 会话管理（/exit 方式）
 
-**核心结论：每次人类消息都 spawn 一个新的 CLI 进程，带 `--resume <sessionId>` 恢复上下文。不是长连接，是"spawn per message"。** CLI 自己管理会话持久化。
+**核心：每次人类消息 spawn 一个新的 CLI 进程，带 --resume <sessionId> 恢复上下文。不是长连接，是"spawn per message"。**
 
-```bash
-# 首次（冷启动）：无 session ID，CLI 创建新会话
-claude --print --output-format stream-json --input-format stream-json --permission-prompt-tool stdio
+**会话 ID 获取（/exit 命令，不用目录扫描）：**
 
-# 后续（恢复）：Engine 从 .teamchat/ 读取 session ID，传给 CLI
-claude --print ... --resume 5fbaf844-4cbc-48b2-9242-7902d098bd81
+```
+首次启动:
+  1. Engine spawn CLI（冷启动，不带 --resume）
+  2. Engine 往 stdin 写 "/exit
+"
+  3. CLI 输出当前 session ID 后退出
+  4. Engine 捕获 ID → 存储到 .teamchat/session_{cli}.txt
+  5. Engine 重新 spawn CLI (带 --resume <id>，发真正的 prompt)
+
+后续启动:
+  1. Engine 从 .teamchat/session_{cli}.txt 读 session ID
+  2. spawn CLI (带 --resume <id>)
 ```
 
-**会话发现：** Engine 启动时扫描 CLI 存储目录，找到最新会话 ID：
+**为什么不用目录扫描？** 用户可能多个项目、多次会话，扫描最新文件可能扫到不相关的。`/exit` 命令获取当前目录会话 ID，100% 准确。
 
-| Agent | 会话存储位置 | 恢复命令 | 实测状态 |
-|---|---|---|---|
-| Claude | `~/.claude/projects/<project-slug>/<uuid>.jsonl` | `claude --print ... --resume <id>` | ✅ |
-| Codex | `~/.codex/sessions/YYYY/MM/` | `codex exec resume --last --json` | ✅ |
-| Cursor | `~/.cursor/chats/` | `cursor-agent --print ... --resume=<id>` | ✅ |
+**当前 TeamChat 项目 session ID:** cici咪 `5fbaf844...`, coco咪 `019f40ef...`, soso咪 `04e64d6d...`
 
-**注意：** 恢复会话时，CLI 会重放历史事件（大量 system/init 行）。Engine 需要只取新消息，过滤掉重放。
+**恢复命令:**
+- Claude: `claude --print ... --resume <id>`
+- Codex: `codex exec resume <id> --json "prompt"`
+- Cursor: `cursor-agent --print ... --resume=<id> "prompt"`
 
-### 1.2 协作流程（完整版）
+**存储路径:** `.teamchat/session_{claude,codex,cursor}.txt`### 1.2 协作流程（完整版）
 
 ```
 场景: 人类说 "开始 Phase 4b"
@@ -110,32 +117,11 @@ Step 8. cici咪 分析 → 全部完成 ✅
 
 ---
 
-## 2. 会话：不是 One-Shot，是 PTY
+## 2. 会话：spawn per message + --resume
 
 ### 2.1 冷启动 vs 恢复
 
-```
-Engine 启动时:
-  for each agent in [cici, coco, soso]:
-    session_file = .teamchat/sessions/{agent}_active
-    if session_file exists:
-      → 使用恢复命令启动 PTY
-      → log: "{agent} 恢复上次会话"
-    else:
-      → 使用冷启动命令启动 PTY
-      → touch session_file
-      → log: "{agent} 冷启动新会话"
-```
-
-冷启动命令:
-- cici咪: `claude`
-- coco咪: `codex`
-- soso咪: `cursor-agent`
-
-恢复命令:
-- cici咪: `claude -c`
-- coco咪: `codex exec resume --last`
-- soso咪: `cursor-agent --continue`
+详见 1.1 节。冷启动用 `/exit` 获取 session ID，后续用 `--resume` 恢复。
 
 ### 2.2 Stream-JSON 通信（已实测验证 ✅）
 
@@ -248,31 +234,59 @@ Codex (--json JSONL):
 **中：聊天室**（人类 ↔ cici咪 对话 + 系统消息 + 审批卡片）
 **右：Agent 活动面板**（选中 agent 的事件流：thinking 折叠、tool_use 卡片、text 气泡）
 
-### 4.2 聊天室显示
+### 4.2 聊天室内容（所有 Agent 输出都进聊天室）
 
-| 内容 | 显示为 |
-|---|---|
-| 人类消息 | 白色气泡，右对齐 |
-| cici咪 text 回复 | 聊天气泡（蓝色边框），干净正文 |
-| coco咪/soso咪 text 回复 | 聊天气泡（绿/紫边框），附带 [#XX] Issue 链接 |
-| 系统通知 | 灰色居中（"#12 完成"、"#13 已派发"） |
-| 审批请求 | 审批卡片，带 [允许] [拒绝] 按钮 |
+stream-json 已自动分离 text/thinking/tool_use。**text 进气泡，thinking 折叠，tool_use 渲染为审批卡片。**
 
-### 4.3 Agent 活动面板（替代终端）
+| 谁 | 显示内容 | 样式 |
+|---|---|---|
+| Human | 用户消息 | 白色气泡，右对齐 |
+| cici咪 | text 输出 | 蓝色左边框气泡 |
+| coco咪 | text 输出 | 绿色左边框气泡 |
+| soso咪 | text 输出 | 紫色左边框气泡 |
+| 系统 | 状态通知 | 灰色居中 |
 
-不是一个真实终端，而是**选定 agent 的结构化事件流**：
+示例聊天室消息流：
 
-- 💭 thinking → 灰色折叠区，点击展开
-- 🔧 tool_use → 审批卡片，实时更新 status
-- 💬 text → 干净气泡
-- ✅ turn complete → 耗时、token 用量
-- ❌ error → 红色提示
+```
+Human: 开始 Phase 4b
+cici咪: 分析 -> #11 #12 #13。#11 #12 并行，#13 等两者。
+coco咪: [tool: Bash(git push)] -> [审批卡片]
+coco咪: #12 完成。PR #20 已创建。
+cici咪: #11 完成。检查任务表... 都 done。#13 派给 soso咪。
+soso咪: Review 通过。16/16 tests passed。
+cici咪: 全部完成。
+```
 
-**相比传统终端：更干净、更可读、不需要人眼自己区分正文。**
+### 4.3 附件/图片支持
 
----
+CLI 支持传入文件路径和图片。前端聊天室支持：
 
-## 5. 授权（修正：审批卡片，不是 PTY y/n）
+- **文件附件**：拖拽/点击上传 -> 取本地绝对路径 -> Engine 传给 CLI
+- **图片**：Claude CLI 支持 --images <path> 或 content block 的 type: "image"
+- **实现参考**：Roundtable 的 buildClaudeContent() 处理 image/document/text 附件
+
+### 4.4 UI 布局
+
+```
++--------------------------------------------------------------+
+|  TeamChat                                       + connected   |
++--------+-----------------------------------------------------+
+| Agent  |               Chat Room (all agents)                |
+|        |                                                     |
+| cici咪 |  Human: Start Phase 4b                                |
+|  idle  |  cici咪: Analyze -> #11 #12 #13                      |
+|        |  coco咪: #12 done PR #20                             |
+| coco咪 |  [Tool: git push origin]      [Allow] [Deny]        |
+|  busy  |  soso咪: Review passed 16/16 tests                   |
+|        |  cici咪: All done.                                    |
+| soso咪 |                                                     |
+|  idle  +-----------------------------------------------------+
+|        |  @cici咪 ...                          [paperclip] [Send] |
++--------+-----------------------------------------------------+
+```
+
+参考风格：Roundtable（干净气泡 + 审批卡片 + Agent 侧边栏 + 附件按钮）。## 5. 授权（修正：审批卡片，不是 PTY y/n）
 
 采用 Roundtable 同款方案：
 
@@ -388,7 +402,7 @@ cici咪 声明，Engine 存储和检查：
 
 ---
 
-**状态:** 等待审查
+**状态:** ADR-003 v3 (confirmed CLI modes, session IDs, all-agent chat room)
 
 ---
 
@@ -488,3 +502,14 @@ Roundtable 是本地圆桌聊天应用，让 Codex 和 Claude Code 在聊天室�
 - **Runtime Adapter 模式** — 每种 CLI 一个 adapter，负责启动、通信、事件映射
 - **SQLite 存储一切** — 消息、审批、session、摘要都存 SQLite
 
+
+
+---
+
+## 12. Current Session IDs (2026-07-09)
+
+| Agent | CLI | Session ID | Resume Command |
+|---|---|---|---|
+| cici咪 | Claude | `5fbaf844-4cbc-48b2-9242-7902d098bd81` | `claude --resume <id>` |
+| coco咪 | Codex | `019f40ef-e8cf-76f0-8b49-6691cc7275f3` | `codex resume <id>` |
+| soso咪 | Cursor | `04e64d6d-de38-4861-a7ce-87c26d28d77f` | `cursor-agent --resume=<id>` |
