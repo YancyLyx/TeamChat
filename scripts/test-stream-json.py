@@ -7,10 +7,10 @@ import json
 async def main():
     cmd = [
         "claude", "--print",
+        "--verbose",
         "--output-format", "stream-json",
         "--input-format", "stream-json",
         "--permission-prompt-tool", "stdio",
-        "-c",  # continue last session
         "-p", "Say hello in one short sentence. Then say 'DONE'.",
     ]
 
