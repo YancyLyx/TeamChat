@@ -1,38 +1,43 @@
 # 📊 PROGRESS
 
-> Last updated: 2026-07-08
+> Last updated: 2026-07-09
 
-## Current: Phase 4 — Autonomy 🔧
+## ✅ Phase 4b — ADR-002 Complete
 
-### 🔴 In Progress (ADR-002)
-| # | 任务 | 负责人 | 状态 |
-|---|---|---|---|
-| 1 | `engine/worker.py` Persistent Worker | cici咪 | 🔴 |
-| 2 | WorkerPool + 生命周期管理 | cici咪 | 🔴 |
-| 3 | 打招呼广播路由 | cici咪 | 🔴 |
-| 4 | CLI 输出解析 | cici咪 | 🔴 |
-| 5 | 会话 Tag 隔离 | cici咪 | 🔴 |
-| 6 | ChatRoom 折叠区 + 历史过滤 | coco咪 | 🔴 |
-| 7 | E2E 测试更新 | soso咪 | 🔴 |
+| # | Issue | 任务 | 负责人 | PR | 状态 |
+|---|---|---|---|---|---|
+| 11 | 引擎层 | CLI --continue + 打招呼广播 + session tag | cici咪 | #14 | ✅ |
+| 12 | 前端 | 折叠区 + 历史过滤 + 去重 | coco咪 | #14 | ✅ |
+| 13 | 测试 | 16 E2E tests + 6 bug fixes | soso咪 | #15 → #14 | ✅ |
 
-### 🟢 Completed (Phase 4 so far)
-- [x] 聊天室架构设计 (ADR-002)
-- [x] `engine/message_parser.py`
-- [x] `api/routes/chat.py` (basic)
-- [x] Chat-room Dashboard (MVP)
-- [x] Chat-room E2E tests (4 tests)
+### 本次改动（14 files, +531/-153）
+- CLI `--continue`/`resume` 上下文保持
+- `run_with_context()` 首次普通调用，后续带 `--continue`
+- 打招呼广播: "大家好" → 三只猫顺序回复
+- Session tag (prod/test) 隔离
+- THINKING/TOOL_CALLS 折叠区
+- 16 个 E2E 测试全部通过
 
-### 🐛 Known Bugs (Phase 4)
-| Bug | Status |
-|---|---|
-| 消息显示两次 | ✅ Fixed |
-| 中文输入 Enter 误触发送 | ✅ Fixed |
-| cici咪 输出裸 JSON | ✅ Fixed |
-| 无 @mention 没回复 | 🔴 等 Worker 实现 |
-| 测试数据混入历史 | 🔴 等 session tagging |
+### PR 协作流程
+```
+PR #14 (coco+ci) ← PR #15 (soso)
+        ↓
+    soso咪 review → 修 6 bugs → approve
+        ↓
+    合并 #15 → #14 → main ✅
+```
+
+---
+
+## Next: 仍存在的架构缺口
+
+| # | Task | Priority |
+|---|---|---|
+| WorkerPool / 持久进程 | 非阻塞，后续迭代 |
+| cursor agent --continue 模板 | 低优先级 |
+| Conflict Resolver | Phase 4 后续 |
+| Git Worktree 隔离 | Phase 4 后续 |
 
 ---
 
 ## Phase 3 ✅ | Phase 2 ✅ | Phase 1 ✅
-
-Details: `docs/phases/`
