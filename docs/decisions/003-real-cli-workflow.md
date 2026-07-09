@@ -6,122 +6,288 @@
 
 ---
 
-## 1. 现实：人肉路由的完整流程
+## 0. 目标（你要的最终效果）
 
-经过与人类确认，真实的"多 agent 协作"操作如下：
+> 我会发一条消息，然后你根据这个消息，判断由谁来执行，是并行还是有前后顺序，
+> 然后我按照你的要求把你给我准备的 prompt 复制粘贴给对应的咪，咪回复完之后你
+> 需要看到他们的消息，于是乎我将他们执行完最后的输出粘贴给你。在整个流程中，
+> 我主要负责在 CLI 终端上按回车键给他们授权命令操作，以及你叫我在终端执行的
+> 脚本等操作，其他具体的活都是你们干的。
+
+**TeamChat 要做的事：把上面这段话里的"我"（人类）替换成 Engine。**
 
 ```
-🧑 人类
-  ├── 终端1: claude (cici咪)    ← 交互式会话，不是 one-shot
-  ├── 终端2: codex (coco咪)     ← 交互式会话
-  └── 终端3: cursor-agent (soso咪) ← 交互式会话
-
-协同工作时:
-  1. 人类在聊天室告诉 cici咪 需求
-  2. cici咪 分析 → 拆任务 → 生成 prompt → 告诉人类
-  3. 人类复制 prompt → 粘贴到对应咪的终端 → 回车
-  4. 在终端里按 y/n 授权 Bash 操作
-  5. 咪完成 → 人类看输出（滚动翻页）
-  6. 人类只复制"正文总结"粘贴给 cici咪 ← 不是完整 CLI 输出
-  7. cici咪 看总结 → 判断下一步 → 循环
+人类现在做的事:                      TeamChat 自动做的事:
+  复制粘贴 prompt 给咪                  Engine 往 PTY stdin 写 prompt
+  按 y/n 授权 Bash                    人类在终端面板按 y/n（保留）
+  看咪的输出                           终端面板实时显示
+  提取正文粘贴给 cici咪                 Engine 提取正文 → 排队 → 推给 cici咪
+  手动判断先后顺序                     Engine 检查任务表依赖
 ```
 
-## 2. 关键发现
+**人类保留的事：** 在终端面板按回车授权、执行脚本。其余全部自动化。
 
-### 2.1 不是 One-Shot，是会话模式
+---
 
-人类打开终端后进入的是 **CLI 交互式会话**，在输入框里打字。不是每次执行 `codex exec "prompt"`。
+## 1. 真实操作流程（逐帧）
+
+### 1.1 会话管理
 
 ```bash
-# 实际操作:
-cd TeamChat
-claude          # 进入交互式会话
-> 你是架构师...  # 在输入框输入
-> [授权 y/n]    # 按 y 授权
+# 人类开三个终端，分别 cd 到 TeamChat 目录:
+#   终端1: claude              ← cici咪 交互式会话
+#   终端2: codex               ← coco咪 交互式会话
+#   终端3: cursor-agent        ← soso咪 交互式会话
 
-# 关闭后再打开，恢复会话:
-cd TeamChat
-claude -c       # 继续上次会话
+# 如果之前在该目录启动过，恢复上次会话:
+#   终端1: claude -c           ← 继续 cici咪 上次会话
+#   终端2: codex exec resume --last  ← 继续 coco咪 上次会话
+#   终端3: cursor-agent --continue   ← 继续 soso咪 上次会话
 ```
 
-### 2.2 人只看正文总结，不是完整输出
+**Engine 需要做的：** 维护目录级的会话标记（`.teamchat/sessions/` 下记录每个 agent 是否已有会话）。有则恢复，无则冷启动。
 
-Agent CLI 输出包含大量内容：思考过程、工具调用、代码变更、文件列表。人类只复制最后的"正文总结"（如 "Task complete: Issue #12..."）给 cici咪。
+```
+启动逻辑:
+  if .teamchat/sessions/{agent}_session_exists:
+      cmd = 恢复命令 (claude -c / codex exec resume --last / cursor-agent --continue)
+  else:
+      cmd = 冷启动 (claude / codex / cursor-agent)
+      touch .teamchat/sessions/{agent}_session_exists
+```
 
-这意味着 **Engine 必须能提取正文**，而不只是取最后 N 行。
+### 1.2 协作流程（完整版）
 
-### 2.3 聊天室 vs CLI 终端是两种 UI
+```
+场景: 人类说 "开始 Phase 4b"
 
-| 聊天室 | CLI 终端 |
+Step 1. cici咪 分析需求
+   → 拆成 3 个任务: #11(cici咪), #12(coco咪), #13(soso咪)
+   → 声明依赖: #13 depends on [#11, #12]
+   → Engine 写入任务表
+
+Step 2. Engine 派发并行任务
+   → #11 → 写入 cici咪 PTY: "实现 --continue 引擎改动"
+   → #12 → 写入 coco咪 PTY: "实现 ChatRoom 折叠区"
+
+Step 3. 两只咪同时执行
+   ├── cici咪 PTY: 思考... 写代码... [git commit? y/n]
+   │      └── 人类在该终端面板按 y
+   └── coco咪 PTY: 实现... 修改文件... [git push? y/n]
+          └── 人类在该终端面板按 y
+
+Step 4. coco咪 先完成 ✅
+   → Engine 提取正文: "Task complete: Issue #12 — ..."
+   → Engine 检查: cici咪 还在执行中 🔴
+   → Engine 排队: 暂存 coco咪 的输出，不打扰 cici咪
+   → 人类在 coco咪 终端面板看到完整输出（可滚动）
+
+Step 5. cici咪 也完成 ✅
+   → Engine 提取 cici咪 正文
+   → Engine 检查: 排队中有 coco咪 的结果
+   → 把两个人的结果一起推给 cici咪
+
+Step 6. cici咪 分析两个结果
+   → #11 done, #12 done
+   → Engine 检查任务表: #13 的依赖全部满足
+   → 通知 cici咪: "#13 可以派发了"
+   → cici咪 生成 soso咪 的 prompt → 发给 Engine
+
+Step 7. Engine 派发给 soso咪
+   → 写入 soso咪 PTY: "E2E 测试 #13..."
+   → soso咪 执行... 需要授权 → 人类按 y
+   → soso咪 完成 ✅
+   → Engine 提取正文 → 推给 cici咪
+
+Step 8. cici咪 分析 → 全部完成 ✅
+```
+
+### 1.3 关键规则
+
+| 规则 | 说明 |
 |---|---|
-| 人类 ↔ cici咪 对话 | 每只咪的完整输出 |
-| 简洁消息，路由决策 | 可滚动，可授权 |
-| 正文总结就够了 | 思考/工具/代码全部可见 |
+| **不打断** | Agent 执行中不推送其他 agent 的结果，排队等完成 |
+| **全完成才汇总** | 并行任务全部完成后，一次性推送所有正文给 cici咪 |
+| **依赖检查** | Engine 自动检查 blocked_by，不满足不派发 |
+| **只有正文** | Agent 间传递的是提取后的正文，完整输出只在终端面板可见 |
 
-**结论：两者都要，不能互相替代。**
+---
 
-## 3. 目标架构
+## 2. 会话：不是 One-Shot，是 PTY
 
-### 3.1 UI 布局
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│  🤖 TeamChat                                     🟢 已连接   │
-├────────┬──────────────────────────────────┬──────────────────┤
-│ Agent  │         📌 聊天室                 │  终端面板 (可切换) │
-│ 状态    │                                  │                  │
-│        │  🧑: 加一个刷新按钮                │ ┌──────────────┐ │
-│ 🏗️cici │  🏗️: 前端任务 → 派给 coco咪       │ │ coco咪 终端   │ │
-│ 🟢/🔴  │  ⚡: 开始实现...                  │ │              │ │
-│        │  ⚡: ✅ 完成，PR #20               │ │ $ 实现中...  │ │
-│ ⚡coco │  🏗️: 收到，检查任务表...           │ │ $ git add.. │ │
-│ 🟢/🔴  │  🏗️: #12 完成，派 #13 给 soso咪   │ │ > [y/n] y   │ │
-│        │  🔍: 开始 review...              │ │              │ │
-│ 🔍soso │  🔍: ✅ Review 通过               │ └──────────────┘ │
-│ 🟢/🔴  │                                  │                  │
-│        ├──────────────────────────────────┤ [cici] [coco]    │
-│        │ 💬 @cici咪 ...            [发送] │ [soso] 标签切换   │
-└────────┴──────────────────────────────────┴──────────────────┘
-```
-
-### 3.2 后端架构
+### 2.1 冷启动 vs 恢复
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   Task Orchestrator                   │
-│  - 维护任务表 (Task Table)                            │
-│  - 管理依赖关系 (blocked_by / blocks)                 │
-│  - 事件驱动: task_done → check deps → dispatch       │
-└──────────────────────┬──────────────────────────────┘
-                       │
-┌──────────────────────┴──────────────────────────────┐
-│                   Engine (Router)                     │
-│  ┌─────────┐  ┌─────────┐  ┌──────────────────────┐ │
-│  │ Agent   │  │ Message │  │ GitHub Adapter       │ │
-│  │ Sessions│  │ Bus     │  │ (Issue/PR/Webhook)   │ │
-│  │ (PTY)   │  │         │  │                      │ │
-│  └─────────┘  └─────────┘  └──────────────────────┘ │
-│                                                      │
-│  ┌─────────┐  ┌─────────┐  ┌──────────────────────┐ │
-│  │ Task    │  │ Session │  │ Output Extractor     │ │
-│  │ Table   │  │ Store   │  │ (正文提取)            │ │
-│  └─────────┘  └─────────┘  └──────────────────────┘ │
-└──────────────────────┬──────────────────────────────┘
-                       │
-     ┌─────────────────┼─────────────────┐
-     ▼                 ▼                  ▼
-┌─────────┐     ┌─────────┐      ┌─────────┐
-│ cici咪  │     │ coco咪  │      │ soso咪  │
-│ Session │     │ Session │      │ Session │
-│ (PTY)   │     │ (PTY)   │      │ (PTY)   │
-└─────────┘     └─────────┘      └─────────┘
+Engine 启动时:
+  for each agent in [cici, coco, soso]:
+    session_file = .teamchat/sessions/{agent}_active
+    if session_file exists:
+      → 使用恢复命令启动 PTY
+      → log: "{agent} 恢复上次会话"
+    else:
+      → 使用冷启动命令启动 PTY
+      → touch session_file
+      → log: "{agent} 冷启动新会话"
 ```
 
-## 4. 核心设计决策
+冷启动命令:
+- cici咪: `claude`
+- coco咪: `codex`
+- soso咪: `cursor-agent`
 
-### 4.1 任务表 (Task Table)
+恢复命令:
+- cici咪: `claude -c`
+- coco咪: `codex exec resume --last`
+- soso咪: `cursor-agent --continue`
 
-cici咪 维护一张结构化任务表，Engine 执行：
+### 2.2 PTY 通信
+
+Engine 通过 PTY (pseudo-terminal) 管理每个 agent 的 stdin/stdout：
+
+```
+Engine → PTY.stdin: prompt + \n   （模仿人类粘贴）
+PTY.stdout → Engine: 实时输出     （完整 CLI 输出）
+PTY.stdout → 前端: WebSocket 推送  （终端面板渲染）
+```
+
+Engine 同时监听 stdout，缓冲全部输出，在检测到 agent 完成时触发正文提取。
+
+---
+
+## 3. 正文提取 (Output Extractor)
+
+### 3.1 问题
+
+Agent CLI 输出包含：思考、工具调用、代码变更、文件列表... 几百行。人类只复制最后的"正文总结"（如 "Task complete: Issue #12 — ..."）给 cici咪。
+
+### 3.2 策略
+
+```
+Claude CLI (--output-format json):
+  → JSON 解析 → result 字段
+
+Codex CLI (纯文本):
+  → 找 "Task complete:" 标记 → 从该行开始取到末尾
+  → fallback: 取倒数 30% 的内容
+
+Cursor CLI (纯文本):
+  → 同 Codex 逻辑
+  → 找 "完成情况" / "Task complete" 标记
+
+通用 fallback:
+  → 取最后 500 行中非空行的最后一段连续文本
+```
+
+### 3.3 正文用途
+
+- Agent 间转发（coco咪 的正文 → cici咪 做决策）
+- 未来可选：聊天室消息（干净的气泡内容）
+- Agent 自身终端面板：始终显示完整输出
+
+---
+
+## 4. UI 设计
+
+### 4.1 布局
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  🤖 TeamChat                                              🟢 已连接  │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌─────────────────────────────┐  ┌──────────────────────────────┐  │
+│  │        📌 聊天室             │  │  cici咪 终端                   │  │
+│  │                             │  │  $ claude -c                  │  │
+│  │  🧑: 开始 Phase 4b          │  │  > 我来分析一下...            │  │
+│  │  🏗️: 拆成 #11 #12 #13       │  │  ...                          │  │
+│  │  🏗️: #11 #12 并行, #13 等待  │  │  ✅ Task complete             │  │
+│  │  ⚡: #12 完成 ✅             │  │                                │  │
+│  │  🏗️: 收到两个结果，派发 #13  │  └──────────────────────────────┘  │
+│  │  🔍: #13 Review 通过 ✅      │  ┌──────────────────────────────┐  │
+│  │                             │  │  coco咪 终端                   │  │
+│  ├─────────────────────────────┤  │  $ codex                      │  │
+│  │ 💬 @cici咪 ...      [发送]  │  │  > 开始实现前端...            │  │
+│  └─────────────────────────────┘  │  ...                          │  │
+│                                   │  ✅ Task complete: Issue #12  │  │
+│  ┌──────────────────────────────┐ │                                │  │
+│  │  soso咪 终端                   │ └──────────────────────────────┘  │
+│  │  $ cursor-agent               │                                    │
+│  │  > 开始写 E2E 测试...          │                                    │
+│  │  ...                           │                                    │
+│  │  ✅ 16/16 tests passed         │                                    │
+│  └──────────────────────────────┘                                     │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+**左：聊天室**（人类 ↔ cici咪 对话，简洁）  
+**右三行：三个终端面板**（同时显示，各自可滚动）
+
+### 4.2 聊天室的内容
+
+聊天室显示：
+- 人类消息
+- cici咪 的回复（正文内容，干净的）
+- 系统消息（"#12 完成"、"#13 已派发给 soso咪"）
+
+**不显示** coco咪/soso咪 的回复到聊天室（MVP 先不做）。未来正文提取成熟后，可加入：
+```
+⚡ coco咪: ✅ #12 完成 — PR #20 已创建，等待 review
+🔍 soso咪: ✅ #13 完成 — 16/16 tests passed
+```
+
+### 4.3 终端面板
+
+用 **xterm.js** 渲染。每个 agent 一个面板。人类可以：
+- 看到完整 CLI 输出（包括思考、工具、代码）
+- 滚动翻页查看历史
+- 在需要授权时按 `y` + Enter
+- 直接在终端里执行脚本
+
+---
+
+## 5. 授权
+
+**MVP 方案：终端面板直接授权。** 不在聊天室加按钮。
+
+```
+Agent PTY 输出: "Run git push? [y/n]"
+     ↓
+终端面板显示这一行
+     ↓
+人类在该面板输入 y + Enter
+     ↓
+Engine 转发 y 到 PTY.stdin
+     ↓
+Agent 继续执行
+```
+
+不做聊天按钮的原因：终端面板是 PTY 直连，人类按 y 就行，不需要额外的后端路由。
+
+---
+
+## 6. 失败处理
+
+```
+同一任务失败:
+  第 1 次 → Engine 自动重试（重新发送相同 prompt）
+  第 2 次 → Engine 自动重试
+  第 3 次 → Engine 不再重试，在聊天室通知人类:
+
+  "⚠️ coco咪 执行 #12 失败 3 次。
+   最后错误: <error excerpt>
+   选项: [重试] [交给 cici咪 分析] [放弃]"
+
+选项说明:
+  [重试]       → 重新发送 prompt（第 4 次）
+  [交给cici咪] → cici咪 看错误，决定修 prompt / 换 agent / 改方案
+  [放弃]       → 标记 abandoned，从任务表移除。人类手动决策后续
+```
+
+---
+
+## 7. 任务表 (Task Table)
+
+cici咪 声明，Engine 存储和检查：
 
 ```json
 {
@@ -132,15 +298,15 @@ cici咪 维护一张结构化任务表，Engine 执行：
       "agent": "cici咪",
       "status": "done",
       "depends_on": [],
-      "output_summary": "..."
+      "output_summary": "实现了 --continue 模板..."
     },
     {
-      "id": "12", 
-      "title": "ChatRoom 前端折叠区",
+      "id": "12",
+      "title": "ChatRoom 折叠区",
       "agent": "coco咪",
       "status": "done",
       "depends_on": [],
-      "output_summary": "..."
+      "output_summary": "Task complete: Issue #12..."
     },
     {
       "id": "13",
@@ -154,93 +320,37 @@ cici咪 维护一张结构化任务表，Engine 执行：
 }
 ```
 
-**规则:** cici咪 声明依赖，Engine 检查依赖 → 全部满足时通知 cici咪 → cici咪 确认 → Engine 派发。
-
-### 4.2 Agent 会话管理
-
-每个 agent 不是 subprocess one-shot，而是**持久 PTY 会话**：
-
-- 启动: 在 TeamChat 目录下启动 CLI 交互式会话
-- 通信: Engine 往 stdin 写 prompt（模仿人类粘贴）
-- 恢复: 关闭后 `claude -c` / `codex exec resume --last` 恢复
-
-### 4.3 正文提取 (Output Extractor)
-
-不同 agent 的输出格式不同，需要统一的提取策略：
-
-```
-Claude CLI:  JSON → parsed["result"] 字段
-Codex CLI:   纯文本 → 从 "Task complete:" 或最后的结构化总结开始取
-Cursor CLI:  纯文本 → 类似 Codex
-
-fallback: 取最后 20% 的内容（总结通常在末尾）
-```
-
-**人类可以在终端面板滚动查看完整输出。提取的正文仅用于 agent 间转发。**
-
-### 4.4 授权机制
-
-Agent 执行 Bash 操作时需要人类授权。两种方式：
-
-**方式 A（MVP）— 聊天按钮：**
-```
-⚡ coco咪: [需要授权] git push origin feature/xxx
-          [批准] [拒绝]
-```
-
-**方式 B（目标）— 终端面板输入：**
-```
-人类在 coco咪 的终端面板看到 "git push? [y/n]"
-直接在该面板输入 y → Engine 转发给 agent 的 PTY
-```
-
-两种方式共存。按钮简单直接，终端面板完整。
-
-### 4.5 失败处理
-
-```
-同一任务失败:
-  第 1 次 → 自动重试（相同 prompt）
-  第 2 次 → 自动重试
-  第 3 次 → 不再重试，通知人类:
-    "coco咪 执行 #12 失败 3 次。
-     最后错误: <error>
-     [重试] [交给 cici咪 分析] [放弃]"
-
-放弃 = 标记 abandoned，人类手动决策
-```
-
-### 4.6 并行任务结果收集
-
-```
-coco咪 done → Engine 暂存结果
-cici咪 done → Engine 检查：所有并行任务都完成？
-    YES → 把所有结果推送给 cici咪
-    NO  → 等待
-```
-
-## 5. 与现有实现的差距
-
-| 功能 | 现在 | ADR-003 目标 |
-|---|---|---|
-| Agent 运行模式 | subprocess one-shot | PTY 持久会话 |
-| 正文提取 | JSON result 字段 | 多格式提取器 |
-| UI | 聊天室 only | 聊天室 + 终端面板 |
-| 任务编排 | 无 | Task Table + 依赖管理 |
-| 授权 | 无 | 聊天按钮 (MVP) / 终端 (目标) |
-| 失败处理 | 无 | 3次重试 → 通知人类 |
-
-## 6. 实施优先级
-
-| Phase | 内容 | 依赖 |
-|---|---|---|
-| **C1** | Task Table 数据结构 + Engine 存储 | 无 |
-| **C2** | Output Extractor（多格式正文提取）| C1 |
-| **C3** | 聊天室授权按钮 | C2 |
-| **C4** | PTY 持久会话 | C2 |
-| **C5** | 终端面板 (xterm.js) | C4 |
-| **C6** | 任务依赖自动调度 | C1 + C2 |
+状态流转: `pending → running → done | failed | abandoned`
 
 ---
 
-**状态:** 等待人类审查
+## 8. 与现有实现的差距
+
+| 功能 | 现在 | ADR-003 |
+|---|---|---|
+| Agent 运行 | subprocess one-shot | PTY 持久会话 |
+| 正文提取 | JSON result 字段 only | 多格式提取器 (Claude/Codex/Cursor) |
+| UI | 聊天室 only | 聊天室 + 3 个终端面板同时显示 |
+| 任务编排 | 无 | Task Table + 依赖检查 |
+| 授权 | 无 | PTY 终端直连，人类按 y/n |
+| 失败处理 | 无 | 3 次重试 → 3 选项 |
+| 会话恢复 | --continue 模板 | 目录级 session 标记 + 冷/热启动 |
+| 结果排队 | 无 | 并行任务→排队→cici咪完成→一次性推送 |
+
+---
+
+## 9. 实施优先级
+
+| Phase | 内容 | 依赖 |
+|---|---|---|
+| **C1** | Task Table 数据结构 + Engine API | 无 |
+| **C2** | PTY Session Manager（冷/热启动 + stdin/stdout）| C1 |
+| **C3** | Output Extractor（多格式正文提取）| C1 |
+| **C4** | 终端面板前端 (xterm.js × 3) | C2 |
+| **C5** | 结果排队 + 依赖检查 + 自动派发 | C1, C3 |
+| **C6** | 失败处理（重试 + 三选项）| C1 |
+| **C7** | 完整集成测试 | C1-C6 |
+
+---
+
+**状态:** 等待审查
