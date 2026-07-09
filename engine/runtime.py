@@ -55,28 +55,46 @@ def find_claude_session(project_root: Path) -> str | None:
 
 
 def find_codex_session() -> str | None:
-    """Find the latest Codex session. Codex stores sessions by year/month."""
+    """Find the latest Codex session ID from session storage."""
     sessions_root = Path.home() / ".codex" / "sessions"
     if not sessions_root.exists():
         return None
-    # Recursively find the most recent session directory
-    session_dirs = sorted(sessions_root.rglob("*"), key=os.path.getmtime, reverse=True)
-    for d in session_dirs:
-        if d.is_dir() and any(d.iterdir()):  # Has files inside
-            return d.name if "-" in d.name else None
-    return None
+    # Scan year/month directories for session files
+    latest = None
+    latest_mtime = 0
+    for f in sessions_root.rglob("*"):
+        if f.is_file() and f.suffix in (".json", ".jsonl"):
+            mtime = os.path.getmtime(f)
+            if mtime > latest_mtime:
+                latest_mtime = mtime
+                # Session ID is usually in the parent dir name or file name
+                parent = f.parent.name
+                if "-" in parent and len(parent) > 20:
+                    latest = parent
+                elif "-" in f.stem and len(f.stem) > 20:
+                    latest = f.stem
+    return latest
 
 
 def find_cursor_session() -> str | None:
-    """Find the latest Cursor session."""
+    """Find the latest Cursor session ID."""
+    # Cursor stores sessions as: ~/.cursor/chats/<session_id>.jsonl
     chats_dir = Path.home() / ".cursor" / "chats"
     if not chats_dir.exists():
         return None
-    chat_files = sorted(chats_dir.rglob("*"), key=os.path.getmtime, reverse=True)
-    for f in chat_files:
-        if f.is_file() and f.suffix in (".json", ".jsonl"):
-            return f.stem
-    return None
+    latest = None
+    latest_mtime = 0
+    for f in chats_dir.rglob("*.jsonl"):
+        mtime = os.path.getmtime(f)
+        if mtime > latest_mtime:
+            latest_mtime = mtime
+            latest = f.stem
+    for f in chats_dir.rglob("*.json"):
+        mtime = os.path.getmtime(f)
+        if mtime > latest_mtime and "agent" in f.stem.lower():
+            latest_mtime = mtime
+            latest = f.stem
+    return latest
 
 
 # ---- CLI Command Builders ----
@@ -118,7 +136,9 @@ def build_cursor_cmd(config: Config, agent: AgentIdentity, prompt: str,
         "--output-format", "stream-json",
     ]
     if session_id:
-        cmd.extend(["--resume", session_id])
+        cmd.append(f"--resume={session_id}")
+    else:
+        cmd.append("--continue")  # fallback: resume last session
     cmd.append(prompt)
     return cmd
 
