@@ -8,7 +8,7 @@ async def main():
     cmd = [
         "codex", "exec",
         "--json",
-        "Say hello in one short sentence. Then respond with just the greeting.",
+        "Create a file called /tmp/teamchat-codex-test.txt with the content 'hello from coco咪'. Then confirm it was created.",
     ]
 
     print(f"Running: {' '.join(cmd[:4])} ...")

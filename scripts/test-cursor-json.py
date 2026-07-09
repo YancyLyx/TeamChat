@@ -10,7 +10,7 @@ async def main():
         "cursor-agent",
         "--print",
         "--output-format", "stream-json",
-        "Say hello in one short sentence.",
+        "Create a file called /tmp/teamchat-cursor-test.txt with the content 'hello from soso咪'. Then confirm it was created.",
     ]
 
     print(f"Running: {' '.join(cmd[:5])} ...")
