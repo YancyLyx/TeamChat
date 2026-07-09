@@ -140,128 +140,176 @@ Engine 启动时:
 - coco咪: `codex exec resume --last`
 - soso咪: `cursor-agent --continue`
 
-### 2.2 PTY 通信
+### 2.2 Stream-JSON 通信（参考 Roundtable）
 
-Engine 通过 PTY (pseudo-terminal) 管理每个 agent 的 stdin/stdout：
+**重大发现：Claude CLI 支持 `--output-format stream-json --input-format stream-json --permission-prompt-tool stdio`**
+Cursor 也支持 `--output-format stream-json`。Codex 有 `--json` (JSONL) 标志。
+
+这意味着**不需要 PTY**。CLI 作为 headless 子进程运行，stdin/stdout 全是结构化 JSON：
 
 ```
-Engine → PTY.stdin: prompt + \n   （模仿人类粘贴）
-PTY.stdout → Engine: 实时输出     （完整 CLI 输出）
-PTY.stdout → 前端: WebSocket 推送  （终端面板渲染）
+Engine 启动 CLI:
+  spawn("claude", [
+    "--print",
+    "--output-format", "stream-json",   // stdout: 每行一个 JSON 事件
+    "--input-format", "stream-json",     // stdin:  每行一个 JSON 指令
+    "--permission-prompt-tool", "stdio", // 权限通过 stdio 流
+    "--resume", sessionId,               // 恢复会话
+  ])
+
+Engine → CLI (stdin):
+  {"type":"user","message":{"role":"user","content":"实现 XX"}}
+
+CLI → Engine (stdout, 每行 JSON):
+  {"type":"assistant","message":{"content":[
+    {"type":"thinking","thinking":"需要先分析..."},   → 💭 思考（折叠）
+    {"type":"text","text":"好的，我来实现..."},       → 💬 正文（气泡）
+    {"type":"tool_use","name":"Bash","input":{...}}  → 🔧 工具（审批卡）
+  ]}}
+
+Engine → CLI (stdin, 审批回复):
+  {"type":"control_response","response":{
+    "subtype":"success","request_id":"xxx",
+    "response":{"behavior":"allow"}
+  }}
 ```
 
-Engine 同时监听 stdout，缓冲全部输出，在检测到 agent 完成时触发正文提取。
+**Codex CLI: 有待验证 `--json` 输出格式。需要实测启动后 stdout 的 JSON 事件结构。**
+**Cursor CLI: 支持 `--output-format stream-json` + `--continue`/`--resume`。**
+
+### 2.3 冷启动 vs 恢复
+
+```
+Engine 启动时:
+  for each agent:
+    session_file = .teamchat/sessions/{agent}_active
+    if session_file exists:
+      → 使用 --resume / --continue 标志
+    else:
+      → 不带 session 标志冷启动
+      → touch session_file
+```
+
+启动命令:
+- cici咪: `claude --print --output-format stream-json --input-format stream-json --permission-prompt-tool stdio [--resume <id>]`
+- coco咪: `codex exec --json [...]`（待验证）
+- soso咪: `cursor-agent --print --output-format stream-json [--continue]`
 
 ---
 
-## 3. 正文提取 (Output Extractor)
+## 3. Agent 输出处理（不再需要"正文提取"！）
 
-### 3.1 问题
+### 3.1 Stream-JSON 自带结构分离
 
-Agent CLI 输出包含：思考、工具调用、代码变更、文件列表... 几百行。人类只复制最后的"正文总结"（如 "Task complete: Issue #12 — ..."）给 cici咪。
+stream-json 模式下，CLI 自己把输出分成三类，**不需要 Engine 做正文提取**：
 
-### 3.2 策略
+| JSON 事件类型 | 含义 | 前端展示 |
+|---|---|---|
+| `type: "text"` | Agent 的正文回复 | 聊天气泡（干净） |
+| `type: "thinking"` | Agent 的思考过程 | 折叠区 |
+| `type: "tool_use"` | Agent 想用工具 (Bash/Write/Read) | 审批卡片 |
+
+### 3.2 各 CLI 适配
 
 ```
-Claude CLI (--output-format json):
-  → JSON 解析 → result 字段
+Claude (stream-json):
+  parseLine(line) → event.type:
+    "assistant" → content[].type = "text" | "thinking" | "tool_use"
+    "result"   → turn completed
+    "control_request" → 审批请求 → 前端渲染卡片
 
-Codex CLI (纯文本):
-  → 找 "Task complete:" 标记 → 从该行开始取到末尾
-  → fallback: 取倒数 30% 的内容
+Cursor (stream-json):
+  待实测，结构可能类似。
+  如不提供 stream-json，回退到 --output-format json 模式解析 result 字段。
 
-Cursor CLI (纯文本):
-  → 同 Codex 逻辑
-  → 找 "完成情况" / "Task complete" 标记
-
-通用 fallback:
-  → 取最后 500 行中非空行的最后一段连续文本
+Codex (--json JSONL):
+  待实测。至少可作为 JSONL 行解析。
 ```
 
 ### 3.3 正文用途
 
-- Agent 间转发（coco咪 的正文 → cici咪 做决策）
-- 未来可选：聊天室消息（干净的气泡内容）
-- Agent 自身终端面板：始终显示完整输出
+- Agent 间转发（coco咪 text → cici咪 做决策）— **text 已经是干净的**
+- 聊天室消息 — **text 直接渲染成气泡**
+- Agent 活动面板 — **显示完整事件流（thinking + text + tool_use）**
 
 ---
 
-## 4. UI 设计
+## 4. UI 设计（修正：不再用 xterm.js）
 
 ### 4.1 布局
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│  🤖 TeamChat                                              🟢 已连接  │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌─────────────────────────────┐  ┌──────────────────────────────┐  │
-│  │        📌 聊天室             │  │  cici咪 终端                   │  │
-│  │                             │  │  $ claude -c                  │  │
-│  │  🧑: 开始 Phase 4b          │  │  > 我来分析一下...            │  │
-│  │  🏗️: 拆成 #11 #12 #13       │  │  ...                          │  │
-│  │  🏗️: #11 #12 并行, #13 等待  │  │  ✅ Task complete             │  │
-│  │  ⚡: #12 完成 ✅             │  │                                │  │
-│  │  🏗️: 收到两个结果，派发 #13  │  └──────────────────────────────┘  │
-│  │  🔍: #13 Review 通过 ✅      │  ┌──────────────────────────────┐  │
-│  │                             │  │  coco咪 终端                   │  │
-│  ├─────────────────────────────┤  │  $ codex                      │  │
-│  │ 💬 @cici咪 ...      [发送]  │  │  > 开始实现前端...            │  │
-│  └─────────────────────────────┘  │  ...                          │  │
-│                                   │  ✅ Task complete: Issue #12  │  │
-│  ┌──────────────────────────────┐ │                                │  │
-│  │  soso咪 终端                   │ └──────────────────────────────┘  │
-│  │  $ cursor-agent               │                                    │
-│  │  > 开始写 E2E 测试...          │                                    │
-│  │  ...                           │                                    │
-│  │  ✅ 16/16 tests passed         │                                    │
-│  └──────────────────────────────┘                                     │
-└──────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│  🤖 TeamChat                                         🟢 已连接   │
+├────────┬──────────────────────────────────┬─────────────────────┤
+│ Agent  │        📌 聊天室                  │  Agent 活动面板      │
+│ 状态    │                                  │  (点击 agent 切换)   │
+│        │  🧑: 开始 Phase 4b                │                     │
+│ 🏗️cici │  🏗️: 拆成 #11 #12 #13             │ ┌─ coco咪 活动 ───┐ │
+│ 🟢/🔴  │  💬 coco咪: #12 完成 ✅            │ │ 💭 思考...      │ │
+│        │     [查看详情]                     │ │ 🔧 Bash(git)   │ │
+│ ⚡coco │  [🔧 审批] git push origin?        │ │   [允许][拒绝]  │ │
+│ 🟢/🔴  │     [允许] [拒绝]                  │ │ 💬 PR #20 done │ │
+│        │  🏗️: 收到，派发 #13 给 soso咪      │ │ ✅ turn 完成    │ │
+│ 🔍soso │  💬 soso咪: Review 通过 ✅          │ └────────────────┘ │
+│ 🟢/🔴  │                                  │                     │
+│        ├──────────────────────────────────┤ [cici][coco][soso] │
+│        │ 💬 @cici咪 ...            [发送]  │                     │
+└────────┴──────────────────────────────────┴─────────────────────┘
 ```
 
-**左：聊天室**（人类 ↔ cici咪 对话，简洁）  
-**右三行：三个终端面板**（同时显示，各自可滚动）
+**左：Agent 状态栏**（谁在线/忙碌）
+**中：聊天室**（人类 ↔ cici咪 对话 + 系统消息 + 审批卡片）
+**右：Agent 活动面板**（选中 agent 的事件流：thinking 折叠、tool_use 卡片、text 气泡）
 
-### 4.2 聊天室的内容
+### 4.2 聊天室显示
 
-聊天室显示：
-- 人类消息
-- cici咪 的回复（正文内容，干净的）
-- 系统消息（"#12 完成"、"#13 已派发给 soso咪"）
+| 内容 | 显示为 |
+|---|---|
+| 人类消息 | 白色气泡，右对齐 |
+| cici咪 text 回复 | 聊天气泡（蓝色边框），干净正文 |
+| coco咪/soso咪 text 回复 | 聊天气泡（绿/紫边框），附带 [#XX] Issue 链接 |
+| 系统通知 | 灰色居中（"#12 完成"、"#13 已派发"） |
+| 审批请求 | 审批卡片，带 [允许] [拒绝] 按钮 |
 
-**不显示** coco咪/soso咪 的回复到聊天室（MVP 先不做）。未来正文提取成熟后，可加入：
-```
-⚡ coco咪: ✅ #12 完成 — PR #20 已创建，等待 review
-🔍 soso咪: ✅ #13 完成 — 16/16 tests passed
-```
+### 4.3 Agent 活动面板（替代终端）
 
-### 4.3 终端面板
+不是一个真实终端，而是**选定 agent 的结构化事件流**：
 
-用 **xterm.js** 渲染。每个 agent 一个面板。人类可以：
-- 看到完整 CLI 输出（包括思考、工具、代码）
-- 滚动翻页查看历史
-- 在需要授权时按 `y` + Enter
-- 直接在终端里执行脚本
+- 💭 thinking → 灰色折叠区，点击展开
+- 🔧 tool_use → 审批卡片，实时更新 status
+- 💬 text → 干净气泡
+- ✅ turn complete → 耗时、token 用量
+- ❌ error → 红色提示
+
+**相比传统终端：更干净、更可读、不需要人眼自己区分正文。**
 
 ---
 
-## 5. 授权
+## 5. 授权（修正：审批卡片，不是 PTY y/n）
 
-**MVP 方案：终端面板直接授权。** 不在聊天室加按钮。
+采用 Roundtable 同款方案：
 
 ```
-Agent PTY 输出: "Run git push? [y/n]"
+CLI 输出: {"type":"control_request","request":{"subtype":"can_use_tool",...}}
      ↓
-终端面板显示这一行
+Engine: handleLine() → events.js 映射 → "approval.requested"
      ↓
-人类在该面板输入 y + Enter
+前端: 聊天室 + 活动面板同时出现审批卡片
+  ┌─────────────────────────────────┐
+  │ 🔧 coco咪 请求使用工具           │
+  │ Bash("git push origin feature") │
+  │                                 │
+  │ [允许] [拒绝]                    │
+  └─────────────────────────────────┘
      ↓
-Engine 转发 y 到 PTY.stdin
+人类点击 [允许]
      ↓
-Agent 继续执行
+Engine → stdin:
+  {"type":"control_response","response":{"subtype":"success","request_id":"...","response":{"behavior":"allow"}}}
+     ↓
+CLI 继续执行
 ```
-
-不做聊天按钮的原因：终端面板是 PTY 直连，人类按 y 就行，不需要额外的后端路由。
 
 ---
 
@@ -326,15 +374,15 @@ cici咪 声明，Engine 存储和检查：
 
 ## 8. 与现有实现的差距
 
-| 功能 | 现在 | ADR-003 |
+| 功能 | 现在 | ADR-003 v2 (Stream-JSON) |
 |---|---|---|
-| Agent 运行 | subprocess one-shot | PTY 持久会话 |
-| 正文提取 | JSON result 字段 only | 多格式提取器 (Claude/Codex/Cursor) |
-| UI | 聊天室 only | 聊天室 + 3 个终端面板同时显示 |
+| Agent 运行 | subprocess one-shot | spawn + stream-json 持久会话 |
+| 正文提取 | JSON result 字段 only | **不需要提取** stream-json 自带 text/thinking/tool_use |
+| UI | 聊天室 only | 聊天室 + 审批卡片 + Agent 活动面板 |
 | 任务编排 | 无 | Task Table + 依赖检查 |
-| 授权 | 无 | PTY 终端直连，人类按 y/n |
+| 授权 | 无 | 审批卡片 → Engine 写 control_response 到 stdin |
 | 失败处理 | 无 | 3 次重试 → 3 选项 |
-| 会话恢复 | --continue 模板 | 目录级 session 标记 + 冷/热启动 |
+| 会话恢复 | --continue 模板 | `--resume <id>` / `--continue` |
 | 结果排队 | 无 | 并行任务→排队→cici咪完成→一次性推送 |
 
 ---
@@ -344,12 +392,13 @@ cici咪 声明，Engine 存储和检查：
 | Phase | 内容 | 依赖 |
 |---|---|---|
 | **C1** | Task Table 数据结构 + Engine API | 无 |
-| **C2** | PTY Session Manager（冷/热启动 + stdin/stdout）| C1 |
-| **C3** | Output Extractor（多格式正文提取）| C1 |
-| **C4** | 终端面板前端 (xterm.js × 3) | C2 |
-| **C5** | 结果排队 + 依赖检查 + 自动派发 | C1, C3 |
-| **C6** | 失败处理（重试 + 三选项）| C1 |
-| **C7** | 完整集成测试 | C1-C6 |
+| **C2** | Stream-JSON Runtime Manager（spawn + JSONL 解析）| C1 |
+| **C3** | Event Mapper（类似 roundtable events.js）| C2 |
+| **C4** | 前端 Agent 活动面板（结构化事件流）| C3 |
+| **C5** | 审批卡片 + 聊天气泡混合显示 | C3 |
+| **C6** | 结果排队 + 依赖检查 + 自动派发 | C1, C3 |
+| **C7** | 失败处理（重试 + 三选项）| C1 |
+| **C8** | Codex / Cursor stream-json 实测 + adapter | C2 |
 
 ---
 
@@ -382,26 +431,26 @@ cici咪 声明，Engine 存储和检查：
 
 | # | 问题 | 状态 |
 |---|---|---|
-| Q8 | 每个 CLI 的输出格式不同（Claude JSON、Codex 纯文本、Cursor 纯文本），如何统一提取正文？ | 待讨论 |
-| Q9 | "找 Task complete: 标记" 这种硬编码行不通。有什么更好的方案？ | 待讨论 |
-| Q10 | 是否先搭建平台，实际跑几次，看后台收到什么内容，再决定提取策略？ | 待讨论 |
-| Q11 | `.teamchat/` 如何存放每个 agent 的回复？用 transcript？还是 schema/JSON？ | 待讨论 |
-| Q12 | cici咪 要和其他咪协作时，是否把 prompt 写入 schema/JSON 文件，Engine 再读出来结构化喂给对应咪？ | 待讨论 |
+| Q8 | 如何统一提取正文？ | ✅ **已回答** — stream-json 自带 text/thinking/tool_use 分离，不需要提取 |
+| Q9 | "找 Task complete:" 硬编码行不通 | ✅ **已回答** — 不需要硬编码，stream-json 事件已结构化 |
+| Q10 | 先搭建平台再决定提取策略？ | ✅ **已回答** — 对 Claude 和 Cursor 已有 stream-json，对 Codex 需要实测 --json |
+| Q11 | `.teamchat/` 存 transcript 还是 JSON？ | ⏳ 待确认 — stream-json 的 raw events 存 SQLite 或 JSONL 文件，供回放 |
+| Q12 | prompt 写入 schema/JSON，Engine 读出来喂给咪？ | ⏳ 待确认 — cici咪 的 prompt 写入任务表，Engine 构建 JSON-RPC 写入 agent stdin |
 
 ### 10.4 CLI 模式选择
 
 | # | 问题 | 状态 |
 |---|---|---|
-| Q13 | PTY 模式 vs Pipe + 事件映射（roundtable 方案），选哪个？ | 待讨论 |
-| Q14 | roundtable 用 `spawn` + `pipe` + 事件映射做到了干净聊天 + 审批卡片。TeamChat 要不要借鉴？ | 待讨论 |
-| Q15 | 如果借鉴 roundtable 的 pipe 方案，三个终端面板还需要吗？还是换成事件卡片？ | 待讨论 |
+| Q13 | PTY vs Pipe + 事件映射？ | ✅ **已回答** — 选 stream-json pipe 方案（参考 roundtable）。Claude 和 Cursor 原生支持 |
+| Q14 | 是否借鉴 roundtable？ | ✅ **已回答** — 借鉴。核心改动：用 `--output-format stream-json --input-format stream-json --permission-prompt-tool stdio` |
+| Q15 | 不需要终端面板了？ | ✅ **已回答** — 不需要 xterm.js。改为 Agent 活动面板（结构化事件流）|
 
 ### 10.5 审批/授权
 
 | # | 问题 | 状态 |
 |---|---|---|
-| Q16 | roundtable 的审批是 CLI 输出 → 事件映射 → 前端渲染审批卡片 → 人类点击 → Engine 回复 y 给 CLI。TeamChat 是否采用同样方案？ | 待讨论 |
-| Q17 | 如果不用 PTY，人类还能在终端里按 y/n 吗？还是全部改成前端点击卡片？ | 待讨论 |
+| Q16 | roundtable 审批方案是否采用？ | ✅ **已回答** — 采用。CLI 发 control_request → Engine 映射 → 前端审批卡片 → 人类点击 → Engine 写 control_response 到 stdin |
+| Q17 | 不用 PTY 后，还能按 y/n 吗？ | ✅ **已回答** — 不能也不需要在终端按 y/n。改为前端点击 [允许][拒绝] 按钮 |
 
 ### 10.6 调度细节
 
