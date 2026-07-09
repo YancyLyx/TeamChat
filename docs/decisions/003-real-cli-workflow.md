@@ -354,3 +354,109 @@ cici咪 声明，Engine 存储和检查：
 ---
 
 **状态:** 等待审查
+
+---
+
+## 10. 待讨论问题清单
+
+以下问题来自人类对人肉路由流程的复盘，需要逐一确认后更新本文档。
+
+### 10.1 Engine 边界
+
+| # | 问题 | 状态 |
+|---|---|---|
+| Q1 | Engine 的定位是什么？是否只是中间人（不决策）？ | 待讨论 |
+| Q2 | Engine 的边界在哪里？哪些事归 Engine，哪些归 cici咪？ | 待讨论 |
+| Q3 | cici咪 的正文如何被 Engine 解析为结构化任务表？是否有 TASK: 标签格式？ | 待讨论 |
+| Q4 | Engine 如何从 cici咪 的回复中提取 prompt，再写入对应 agent 的 CLI？ | 待讨论 |
+
+### 10.2 Prompt 流转
+
+| # | 问题 | 状态 |
+|---|---|---|
+| Q5 | 派发任务时，prompt 是 cici咪 写的吗？还是 Engine 根据任务表自动生成？ | 待讨论 |
+| Q6 | Prompt 如何在 Engine 和 PTY 之间流转？具体机制是什么？ | 待讨论 |
+| Q7 | 如果 cici咪 在回复中写了 `TASK:#12:agent=coco咪:...`，Engine 怎么解析这个格式？ | 待讨论 |
+
+### 10.3 正文提取
+
+| # | 问题 | 状态 |
+|---|---|---|
+| Q8 | 每个 CLI 的输出格式不同（Claude JSON、Codex 纯文本、Cursor 纯文本），如何统一提取正文？ | 待讨论 |
+| Q9 | "找 Task complete: 标记" 这种硬编码行不通。有什么更好的方案？ | 待讨论 |
+| Q10 | 是否先搭建平台，实际跑几次，看后台收到什么内容，再决定提取策略？ | 待讨论 |
+| Q11 | `.teamchat/` 如何存放每个 agent 的回复？用 transcript？还是 schema/JSON？ | 待讨论 |
+| Q12 | cici咪 要和其他咪协作时，是否把 prompt 写入 schema/JSON 文件，Engine 再读出来结构化喂给对应咪？ | 待讨论 |
+
+### 10.4 CLI 模式选择
+
+| # | 问题 | 状态 |
+|---|---|---|
+| Q13 | PTY 模式 vs Pipe + 事件映射（roundtable 方案），选哪个？ | 待讨论 |
+| Q14 | roundtable 用 `spawn` + `pipe` + 事件映射做到了干净聊天 + 审批卡片。TeamChat 要不要借鉴？ | 待讨论 |
+| Q15 | 如果借鉴 roundtable 的 pipe 方案，三个终端面板还需要吗？还是换成事件卡片？ | 待讨论 |
+
+### 10.5 审批/授权
+
+| # | 问题 | 状态 |
+|---|---|---|
+| Q16 | roundtable 的审批是 CLI 输出 → 事件映射 → 前端渲染审批卡片 → 人类点击 → Engine 回复 y 给 CLI。TeamChat 是否采用同样方案？ | 待讨论 |
+| Q17 | 如果不用 PTY，人类还能在终端里按 y/n 吗？还是全部改成前端点击卡片？ | 待讨论 |
+
+### 10.6 调度细节
+
+| # | 问题 | 状态 |
+|---|---|---|
+| Q18 | 1.2 节的流程是否足够详细？人类实际操作中还有哪些边界情况？ | 待讨论 |
+| Q19 | coco咪 先完成时，如果 cici咪 还在跑，coco咪 的输出排队。但如果 cici咪 跑了一个小时，人类能看到 coco咪 的输出吗？ | 待讨论 |
+| Q20 | 三个 agent 同时在 chat 里说话时，消息顺序如何保证？ | 待讨论 |
+
+---
+
+## 11. 参考资料: Roundtable
+
+https://github.com/wenwen-0617/roundtable
+
+### 架构摘要
+
+Roundtable 是本地圆桌聊天应用，让 Codex 和 Claude Code 在聊天室中协作。
+
+**核心实现（与我们设计相关的部分）：**
+
+```
+用户浏览器 ↔ HTTP/WebSocket ↔ Roundtable Server
+                                    │
+                        ┌───────────┼───────────┐
+                        │           │           │
+                   RuntimeHub   SQLite DB   Summary/Checkin
+                        │
+            ┌───────────┴───────────┐
+            │                       │
+    Codex Runtime Adapter    Claude Code Runtime Adapter
+            │                       │
+    child_process.spawn()    child_process.spawn()
+    (pipe, NOT ptY)          (pipe, NOT pty)
+```
+
+**关键设计：**
+
+1. **非 PTY，用 pipe** — `spawn("claude", args, { stdio: ["pipe","pipe","pipe"] })`，读取 stdout 每一行
+
+2. **事件映射层** — `events.js` 将 CLI 行输出映射为结构化事件：
+   - `runtime.approval.requested` → 前端审批卡片
+   - `runtime.turn.completed` → 任务完成
+   - `runtime.message` → 聊天气泡
+
+3. **审批流程** — CLI 输出 "Run git push?" → events.js 映射为 approval 事件 → 存入 `pendingApprovals` → 前端渲染审批卡片 → 人类点击允许/拒绝 → `sendResponse(requestId, decision)` → Engine 向 CLI stdin 写入 y/n
+
+4. **会话恢复** — `claude -c` 恢复上次会话，session 绑定存储在 SQLite
+
+5. **UI 分离** — 聊天区显示干净的消息和审批卡片；完整 CLI 输出可通过其他方式查看
+
+### 对 TeamChat 的启示
+
+- **不需要 PTY** — 用 pipe + 事件映射可以达到同样效果，且正文提取天然结构化
+- **审批卡片** — 不需要人类在终端按 y/n，可以做成前端交互
+- **Runtime Adapter 模式** — 每种 CLI 一个 adapter，负责启动、通信、事件映射
+- **SQLite 存储一切** — 消息、审批、session、摘要都存 SQLite
+
