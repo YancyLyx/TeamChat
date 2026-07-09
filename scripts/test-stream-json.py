@@ -23,20 +23,21 @@ async def main():
         stderr=asyncio.subprocess.PIPE,
     )
 
-    # Send user message via stdin (required for --input-format stream-json)
+    # Test 1: Simple greeting (no tools)
     user_msg = json.dumps({
         "type": "user",
         "message": {
             "role": "user",
-            "content": [{"type": "text", "text": "Say hello in one short sentence."}]
+            "content": [{"type": "text", "text": "Create a file called /tmp/teamchat-test.txt with the content 'hello from cici咪'"}]
         }
     }) + "\n"
     process.stdin.write(user_msg.encode("utf-8"))
     await process.stdin.drain()
-    process.stdin.write_eof()  # Signal no more input
 
-    # Read stdout line by line as JSON
+    # Read stdout line by line as JSON, handle approvals
     count = 0
+    timeout_seconds = 60
+    last_read_time = asyncio.get_event_loop().time()
     text_parts = []
     thinking_parts = []
     tool_uses = []
@@ -80,9 +81,27 @@ async def main():
             print(f"  ✅ result: {result_text[:200]}")
             print(f"  duration_ms: {event.get('duration_ms')}")
             print(f"  usage: {json.dumps(event.get('usage', {}))}")
+            # Close stdin to let the process finish
+            if process.stdin and not process.stdin.is_closing():
+                process.stdin.write_eof()
+                await process.stdin.drain()
         elif event_type == "control_request":
             req = event.get("request", {})
-            print(f"  🔒 control_request: {req.get('subtype')} tool={req.get('tool_name')}")
+            request_id = event.get("request_id", "")
+            print(f"  🔒 control_request: subtype={req.get('subtype')} tool={req.get('tool_name')} request_id={request_id}")
+            print(f"     input: {json.dumps(req.get('input', {}), indent=2)[:300]}")
+            # Auto-approve for testing
+            response = json.dumps({
+                "type": "control_response",
+                "response": {
+                    "subtype": "success",
+                    "request_id": request_id,
+                    "response": {"behavior": "allow", "updatedInput": {}}
+                }
+            }) + "\n"
+            process.stdin.write(response.encode("utf-8"))
+            await process.stdin.drain()
+            print(f"     → Auto-approved")
         else:
             # Print keys for unknown event types
             print(f"  keys: {list(event.keys())}")
