@@ -31,30 +31,27 @@
 
 ## 1. 真实操作流程（逐帧）
 
-### 1.1 会话管理
+### 1.1 会话管理（已实测验证 ✅）
+
+**核心结论：每次人类消息都 spawn 一个新的 CLI 进程，带 `--resume <sessionId>` 恢复上下文。不是长连接，是"spawn per message"。** CLI 自己管理会话持久化。
 
 ```bash
-# 人类开三个终端，分别 cd 到 TeamChat 目录:
-#   终端1: claude              ← cici咪 交互式会话
-#   终端2: codex               ← coco咪 交互式会话
-#   终端3: cursor-agent        ← soso咪 交互式会话
+# 首次（冷启动）：无 session ID，CLI 创建新会话
+claude --print --output-format stream-json --input-format stream-json --permission-prompt-tool stdio
 
-# 如果之前在该目录启动过，恢复上次会话:
-#   终端1: claude -c           ← 继续 cici咪 上次会话
-#   终端2: codex exec resume --last  ← 继续 coco咪 上次会话
-#   终端3: cursor-agent --continue   ← 继续 soso咪 上次会话
+# 后续（恢复）：Engine 从 .teamchat/ 读取 session ID，传给 CLI
+claude --print ... --resume 5fbaf844-4cbc-48b2-9242-7902d098bd81
 ```
 
-**Engine 需要做的：** 维护目录级的会话标记（`.teamchat/sessions/` 下记录每个 agent 是否已有会话）。有则恢复，无则冷启动。
+**会话发现：** Engine 启动时扫描 CLI 存储目录，找到最新会话 ID：
 
-```
-启动逻辑:
-  if .teamchat/sessions/{agent}_session_exists:
-      cmd = 恢复命令 (claude -c / codex exec resume --last / cursor-agent --continue)
-  else:
-      cmd = 冷启动 (claude / codex / cursor-agent)
-      touch .teamchat/sessions/{agent}_session_exists
-```
+| Agent | 会话存储位置 | 恢复命令 | 实测状态 |
+|---|---|---|---|
+| Claude | `~/.claude/projects/<project-slug>/<uuid>.jsonl` | `claude --print ... --resume <id>` | ✅ |
+| Codex | `~/.codex/sessions/YYYY/MM/` | `codex exec resume --last --json` | ✅ |
+| Cursor | `~/.cursor/chats/` | `cursor-agent --print ... --resume=<id>` | ✅ |
+
+**注意：** 恢复会话时，CLI 会重放历史事件（大量 system/init 行）。Engine 需要只取新消息，过滤掉重放。
 
 ### 1.2 协作流程（完整版）
 
@@ -140,60 +137,49 @@ Engine 启动时:
 - coco咪: `codex exec resume --last`
 - soso咪: `cursor-agent --continue`
 
-### 2.2 Stream-JSON 通信（参考 Roundtable）
+### 2.2 Stream-JSON 通信（已实测验证 ✅）
 
-**重大发现：Claude CLI 支持 `--output-format stream-json --input-format stream-json --permission-prompt-tool stdio`**
-Cursor 也支持 `--output-format stream-json`。Codex 有 `--json` (JSONL) 标志。
+**不
 
-这意味着**不需要 PTY**。CLI 作为 headless 子进程运行，stdin/stdout 全是结构化 JSON：
-
-```
-Engine 启动 CLI:
-  spawn("claude", [
-    "--print",
-    "--output-format", "stream-json",   // stdout: 每行一个 JSON 事件
-    "--input-format", "stream-json",     // stdin:  每行一个 JSON 指令
-    "--permission-prompt-tool", "stdio", // 权限通过 stdio 流
-    "--resume", sessionId,               // 恢复会话
-  ])
-
-Engine → CLI (stdin):
-  {"type":"user","message":{"role":"user","content":"实现 XX"}}
-
-CLI → Engine (stdout, 每行 JSON):
-  {"type":"assistant","message":{"content":[
-    {"type":"thinking","thinking":"需要先分析..."},   → 💭 思考（折叠）
-    {"type":"text","text":"好的，我来实现..."},       → 💬 正文（气泡）
-    {"type":"tool_use","name":"Bash","input":{...}}  → 🔧 工具（审批卡）
-  ]}}
-
-Engine → CLI (stdin, 审批回复):
-  {"type":"control_response","response":{
-    "subtype":"success","request_id":"xxx",
-    "response":{"behavior":"allow"}
-  }}
-```
-
-**Codex CLI: 有待验证 `--json` 输出格式。需要实测启动后 stdout 的 JSON 事件结构。**
-**Cursor CLI: 支持 `--output-format stream-json` + `--continue`/`--resume`。**
-
-### 2.3 冷启动 vs 恢复
+需要 PTY。CLI 作为 headless 子进程运行，每次消息 spawn 一次。**
 
 ```
-Engine 启动时:
-  for each agent:
-    session_file = .teamchat/sessions/{agent}_active
-    if session_file exists:
-      → 使用 --resume / --continue 标志
-    else:
-      → 不带 session 标志冷启动
-      → touch session_file
+人类发消息 → Engine spawn CLI（带 --resume）
+  → stdin: 写 JSON 用户消息
+  → stdout: 读 JSONL events
+  → 进程自然结束
+  → 下次消息再 spawn（恢复同一个 session）
 ```
 
-启动命令:
-- cici咪: `claude --print --output-format stream-json --input-format stream-json --permission-prompt-tool stdio [--resume <id>]`
-- coco咪: `codex exec --json [...]`（待验证）
-- soso咪: `cursor-agent --print --output-format stream-json [--continue]`
+**实测确认的 CLI 命令：**
+
+| Agent | 完整命令 | stdin 交互 |
+|---|---|---|
+| Claude | `claude --print --verbose --output-format stream-json --input-format stream-json --permission-prompt-tool stdio [--resume <id>]` | 写 `{"type":"user","message":...}` |
+| Codex | `codex exec [resume <id>] --json "<prompt>"` | prompt 在 CLI 参数里 |
+| Cursor | `cursor-agent --print --output-format stream-json [--resume=<id>\|--continue] "<prompt>"` | prompt 在 CLI 参数里 |
+
+### 2.3 统一事件映射（已实测验证 ✅）
+
+三个 CLI 输出的 JSON 格式不同。Engine 通过 Runtime Manager 统一映射为 `AgentEvent`：
+
+| AgentEvent | Claude 来源 | Codex 来源 | Cursor 来源 |
+|---|---|---|---|
+| `text` | `assistant.content[type=text]` | `item.completed[type=agent_message]` | `assistant.content[type=text]` |
+| `thinking` | `assistant.content[type=thinking]` | `item.completed[type=reasoning]` | `type=thinking` |
+| `tool_use` | `assistant.content[type=tool_use]` | `item.completed[type=command_execution]` | `type=tool_call` |
+| `done` | `type=result` | `type=turn.completed` | `type=result` |
+| `session_init` | `type=system` | `type=thread.started` | `type=system` |
+
+### 2.4 审批机制（已实测验证 ✅）
+
+| Agent | 审批方式 | TeamChat 如何处理 |
+|---|---|---|
+| **Claude** | `type=control_request` 事件 | ✅ 前端渲染审批卡片，人类点击 [允许]/[拒绝]，Engine 写 control_response 到 stdin |
+| **Codex** | exec 模式下自动执行（sandbox 保护）| 接受默认行为。如果需要审批，用配置而非 CLI flag |
+| **Cursor** | print 模式下自动执行（`--auto-review` 仅 Allowlist）| 接受默认行为。危险命令自动被 Allowlist 拒绝 |
+
+**决策：Claude 走审批卡片。Codex/Cursor 接受默认自动执行/拒绝。安全网在 PR review 和 merge gate。**
 
 ---
 
@@ -376,8 +362,8 @@ cici咪 声明，Engine 存储和检查：
 
 | 功能 | 现在 | ADR-003 v2 (Stream-JSON) |
 |---|---|---|
-| Agent 运行 | subprocess one-shot | spawn + stream-json 持久会话 |
-| 正文提取 | JSON result 字段 only | **不需要提取** stream-json 自带 text/thinking/tool_use |
+| Agent 运行 | subprocess one-shot | spawn per message + --resume（不是长连接）✅ 已实测 |
+| 正文提取 | JSON result 字段 only | **不需要提取** stream-json/JSONL 统一映射为 AgentEvent ✅ 已实测 |
 | UI | 聊天室 only | 聊天室 + 审批卡片 + Agent 活动面板 |
 | 任务编排 | 无 | Task Table + 依赖检查 |
 | 授权 | 无 | 审批卡片 → Engine 写 control_response 到 stdin |
@@ -392,13 +378,13 @@ cici咪 声明，Engine 存储和检查：
 | Phase | 内容 | 依赖 |
 |---|---|---|
 | **C1** | Task Table 数据结构 + Engine API | 无 |
-| **C2** | Stream-JSON Runtime Manager（spawn + JSONL 解析）| C1 |
-| **C3** | Event Mapper（类似 roundtable events.js）| C2 |
+| **C2** | Runtime Manager（spawn CLI + JSONL parse + session resume）| C1 — ✅ 原型已写，待 review |
+| **C3** | Event Mapper 完善（handle 会话重放、错误、超时）| C2 |
 | **C4** | 前端 Agent 活动面板（结构化事件流）| C3 |
-| **C5** | 审批卡片 + 聊天气泡混合显示 | C3 |
+| **C5** | 审批卡片（仅 Claude）+ 聊天气泡混合显示 | C3 |
 | **C6** | 结果排队 + 依赖检查 + 自动派发 | C1, C3 |
 | **C7** | 失败处理（重试 + 三选项）| C1 |
-| **C8** | Codex / Cursor stream-json 实测 + adapter | C2 |
+| ~~C8~~ | ~~Codex/Cursor stream-json 实测~~ | ✅ 已完成 |
 
 ---
 
@@ -414,51 +400,44 @@ cici咪 声明，Engine 存储和检查：
 
 | # | 问题 | 状态 |
 |---|---|---|
-| Q1 | Engine 的定位是什么？是否只是中间人（不决策）？ | 待讨论 |
-| Q2 | Engine 的边界在哪里？哪些事归 Engine，哪些归 cici咪？ | 待讨论 |
-| Q3 | cici咪 的正文如何被 Engine 解析为结构化任务表？是否有 TASK: 标签格式？ | 待讨论 |
-| Q4 | Engine 如何从 cici咪 的回复中提取 prompt，再写入对应 agent 的 CLI？ | 待讨论 |
+| Q1 | Engine 的定位是什么？ | ✅ Engine = 中间人（spawn CLI、解析事件、写 stdin、管理任务表）。决策在 cici咪 |
+| Q2 | Engine 的边界？ | ✅ Engine 不做 AI 推理、不生成 prompt、不判断依赖。只做进程管理 + 事件映射 + 存储 |
+| Q3 | cici咪 正文 → 任务表？ | ⏳ 方案：cici咪 用 `TASK:` 标签格式，Engine 解析。具体格式待实现阶段确认 |
+| Q4 | Engine 如何把 prompt 喂给 agent？ | ✅ Claude: stdin JSON。Codex/Cursor: CLI args。已实测验证 |
 
 ### 10.2 Prompt 流转
 
 | # | 问题 | 状态 |
 |---|---|---|
-| Q5 | 派发任务时，prompt 是 cici咪 写的吗？还是 Engine 根据任务表自动生成？ | 待讨论 |
-| Q6 | Prompt 如何在 Engine 和 PTY 之间流转？具体机制是什么？ | 待讨论 |
-| Q7 | 如果 cici咪 在回复中写了 `TASK:#12:agent=coco咪:...`，Engine 怎么解析这个格式？ | 待讨论 |
+| Q5 | Prompt 是 cici咪 写的吗？ | ✅ 是。就像你之前让我写 prompt 给 coco咪/soso咪，cici咪 生成 prompt → Engine 执行 |
+| Q6 | Prompt 流转机制？ | ✅ Engine spawn CLI + stdin/CLI-args 传递。见 2.2 节 |
+| Q7 | cici咪 的 `TASK:` 格式如何解析？| ⏳ 实现阶段确定。可参考 ADR-003 1.2 节格式 |
 
 ### 10.3 正文提取
 
 | # | 问题 | 状态 |
 |---|---|---|
-| Q8 | 如何统一提取正文？ | ✅ **已回答** — stream-json 自带 text/thinking/tool_use 分离，不需要提取 |
-| Q9 | "找 Task complete:" 硬编码行不通 | ✅ **已回答** — 不需要硬编码，stream-json 事件已结构化 |
-| Q10 | 先搭建平台再决定提取策略？ | ✅ **已回答** — 对 Claude 和 Cursor 已有 stream-json，对 Codex 需要实测 --json |
-| Q11 | `.teamchat/` 存 transcript 还是 JSON？ | ⏳ 待确认 — stream-json 的 raw events 存 SQLite 或 JSONL 文件，供回放 |
-| Q12 | prompt 写入 schema/JSON，Engine 读出来喂给咪？ | ⏳ 待确认 — cici咪 的 prompt 写入任务表，Engine 构建 JSON-RPC 写入 agent stdin |
+| Q8-Q10 | 正文提取方案 | ✅ Runtime Manager 统一事件映射。不需要硬编码 |
+| Q11 | `.teamchat/` 存储 | ✅ raw events 存 SQLite sessions 表。session ID 存 `.teamchat/session_{cli}.txt` |
+| Q12 | prompt 写入 schema/JSON | ✅ Engine 直接构建 CLI 命令（args/stdin JSON），不需要中间文件 |
 
 ### 10.4 CLI 模式选择
 
 | # | 问题 | 状态 |
 |---|---|---|
-| Q13 | PTY vs Pipe + 事件映射？ | ✅ **已回答** — 选 stream-json pipe 方案（参考 roundtable）。Claude 和 Cursor 原生支持 |
-| Q14 | 是否借鉴 roundtable？ | ✅ **已回答** — 借鉴。核心改动：用 `--output-format stream-json --input-format stream-json --permission-prompt-tool stdio` |
-| Q15 | 不需要终端面板了？ | ✅ **已回答** — 不需要 xterm.js。改为 Agent 活动面板（结构化事件流）|
+| Q13-Q15 | PTY vs stream-json | ✅ 全部回答。选 stream-json。不需要 xterm.js |
 
 ### 10.5 审批/授权
 
 | # | 问题 | 状态 |
 |---|---|---|
-| Q16 | roundtable 审批方案是否采用？ | ✅ **已回答** — 采用。CLI 发 control_request → Engine 映射 → 前端审批卡片 → 人类点击 → Engine 写 control_response 到 stdin |
-| Q17 | 不用 PTY 后，还能按 y/n 吗？ | ✅ **已回答** — 不能也不需要在终端按 y/n。改为前端点击 [允许][拒绝] 按钮 |
+| Q16-Q17 | 审批方案 | ✅ Claude: 审批卡片。Codex/Cursor: 接受自动执行。见 2.4 节 |
 
 ### 10.6 调度细节
 
 | # | 问题 | 状态 |
 |---|---|---|
-| Q18 | 1.2 节的流程是否足够详细？人类实际操作中还有哪些边界情况？ | 待讨论 |
-| Q19 | coco咪 先完成时，如果 cici咪 还在跑，coco咪 的输出排队。但如果 cici咪 跑了一个小时，人类能看到 coco咪 的输出吗？ | 待讨论 |
-| Q20 | 三个 agent 同时在 chat 里说话时，消息顺序如何保证？ | 待讨论 |
+| Q18-Q20 | 调度细节 | ⏳ 实现阶段处理。1.2 节流程为基础，边界情况边做边补 |
 
 ---
 
