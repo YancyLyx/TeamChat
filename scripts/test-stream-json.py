@@ -11,7 +11,6 @@ async def main():
         "--output-format", "stream-json",
         "--input-format", "stream-json",
         "--permission-prompt-tool", "stdio",
-        "-p", "Say hello in one short sentence. Then say 'DONE'.",
     ]
 
     print(f"Running: {' '.join(cmd[:6])} ...")
@@ -23,6 +22,18 @@ async def main():
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
+
+    # Send user message via stdin (required for --input-format stream-json)
+    user_msg = json.dumps({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [{"type": "text", "text": "Say hello in one short sentence."}]
+        }
+    }) + "\n"
+    process.stdin.write(user_msg.encode("utf-8"))
+    await process.stdin.drain()
+    process.stdin.write_eof()  # Signal no more input
 
     # Read stdout line by line as JSON
     count = 0
