@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
-"""Test Cursor CLI approval — try a dangerous command WITHOUT --force. Run: python scripts/test-cursor-approval.py"""
-
+"""Test Cursor approval with --auto-review + dangerous command"""
 import asyncio, json
 
 async def main():
-    # NO --force / --yolo flag — should trigger approval
     cmd = [
         "cursor-agent",
         "--print",
         "--output-format", "stream-json",
-        "List /tmp/ files starting with 'teamchat'. If none exist, create /tmp/teamchat-cursor-approval.txt with 'test'. Then delete it.",
+        "--auto-review",
+        "Delete /tmp/teamchat-cursor-test.txt. Also try to run: curl -s http://example.com",
     ]
 
-    print(f"Running cursor-agent --print --output-format stream-json (NO --force)...")
+    print(f"Testing: cursor-agent --print --output-format stream-json --auto-review")
     print("=" * 60)
 
     process = await asyncio.create_subprocess_exec(
@@ -23,68 +22,62 @@ async def main():
     )
 
     count = 0
-    async for line in process.stdout:
-        line_str = line.decode("utf-8", errors="replace").strip()
-        if not line_str: continue
-        count += 1
-        try:
-            event = json.loads(line_str)
-        except json.JSONDecodeError:
-            print(f"[TEXT #{count}] {line_str[:300]}")
-            continue
+    try:
+        while True:
+            line = await asyncio.wait_for(process.stdout.readline(), timeout=120)
+            if not line: break
+            line_str = line.decode("utf-8", errors="replace").strip()
+            if not line_str: continue
+            count += 1
+            try:
+                event = json.loads(line_str)
+            except json.JSONDecodeError:
+                print(f"[TEXT] {line_str[:300]}")
+                continue
 
-        etype = event.get("type", "?")
-        subtype = event.get("subtype", "")
+            etype = event.get("type", "?")
+            subtype = event.get("subtype", "")
 
-        if etype == "system":
-            print(f"🔧 System: subtype={subtype} session={event.get('session_id','')[:20]}...")
+            if etype == "system":
+                print(f"⚙️  init session={event.get('session_id','')[:20]}... model={event.get('model','?')}")
+            elif etype == "thinking":
+                t = event.get("text", "")
+                if t.strip(): print(f"💭 {t[:200]}")
+            elif etype == "assistant":
+                for c in event.get("message", {}).get("content", []):
+                    ct = c.get("type", "?")
+                    if ct == "text": print(f"💬 {c.get('text','')[:300]}")
+                    elif ct == "tool_use":
+                        print(f"\n🔧 TOOL: {c.get('name','?')}")
+                        print(f"   input: {json.dumps(c.get('input',{}))[:300]}")
+                    else: print(f"   [{ct}]")
+            elif etype == "tool_call":
+                tc = event.get("tool_call", {})
+                print(f"🔧 TOOL_CALL: {tc.get('name','?')} id={event.get('call_id','')[:20]}...")
 
-        elif etype == "thinking":
-            text = event.get("text", "")
-            if text.strip():
-                print(f"💭 {text[:200]}")
+                # Check if this is an approval request
+                tc_subtype = event.get("subtype", "")
+                if tc_subtype == "approval_requested":
+                    print(f"\n🔒 APPROVAL REQUESTED!")
+                    print(f"   tool: {tc.get('name','?')}")
+                    print(f"   args: {json.dumps(tc.get('arguments',{}))[:300]}")
+                    print(f"   call_id: {event.get('call_id','')}")
+            elif etype == "user":
+                print(f"👤 User echo")
+            elif etype == "result":
+                print(f"\n✅ RESULT (error={event.get('is_error',False)}, {event.get('duration_ms',0)}ms):")
+                print(f"   {str(event.get('result',''))[:500]}")
+            else:
+                print(f"[{etype}/{subtype}] keys={list(event.keys())[:6]}")
 
-        elif etype == "assistant":
-            msg = event.get("message", {})
-            content = msg.get("content", [])
-            for c in content:
-                ct = c.get("type", "?")
-                if ct == "text":
-                    print(f"💬 {c.get('text','')[:300]}")
-                elif ct == "tool_use":
-                    print(f"🔧 TOOL: {c.get('name','?')} input={json.dumps(c.get('input',{}))[:200]}")
-                else:
-                    print(f"   [{ct}] {str(c)[:200]}")
-
-        elif etype == "tool_call":
-            tc = event.get("tool_call", {})
-            print(f"🔧 TOOL_CALL: {tc.get('name','?')} call_id={event.get('call_id','')[:20]}...")
-
-        elif etype == "user":
-            print(f"👤 User event")
-
-        elif etype == "result":
-            result_text = event.get("result", "")
-            is_error = event.get("is_error", False)
-            dur = event.get("duration_ms", 0)
-            print(f"\n✅ RESULT (error={is_error}, {dur}ms): {str(result_text)[:500]}")
-
-        elif etype == "control_request":
-            req = event.get("request", {})
-            print(f"\n🔒 APPROVAL REQUESTED!")
-            print(f"   subtype={req.get('subtype')}")
-            print(f"   tool={req.get('tool_name')}")
-            print(f"   input={json.dumps(req.get('input',{}))[:300]}")
-            print(f"   request_id={event.get('request_id','')}")
-
-        else:
-            print(f"[{etype}] keys={list(event.keys())[:8]}")
+    except asyncio.TimeoutError:
+        print("\n⏰ Timeout waiting for stdout")
 
     await process.wait()
+
     stderr = (await process.stderr.read()).decode("utf-8", errors="replace")
     if stderr.strip():
-        print(f"\n📢 STDERR ({len(stderr)} chars):")
-        print(stderr[:2000])
+        print(f"\n📢 STDERR: {stderr[:2000]}")
 
     print(f"\nTotal events: {count}")
 
