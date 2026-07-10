@@ -79,11 +79,18 @@ stream-json 分离了 text / thinking / tool_use。**text 进聊天室气泡，t
 
 ### 为什么需要多会话
 
-Agent CLI 的上下文绑定在**工作目录 + session ID** 上。同一个目录 + 同一个 session ID = 同一个上下文（记忆延续）。不同目录 = 不同上下文。
+Agent CLI 的上下文由 **session ID** 决定，不是由目录决定。同一个目录 + 同一个 session ID = 同一个上下文。同一个目录 + 不同 session ID = 不同上下文（但共享文件系统）。
 
-因此 TeamChat 需要支持多会话：
-- **会话 A（TeamChat 项目）**：目录 `/Users/.../TeamChat`，三个 session ID 已有
-- **会话 B（另一个项目）**：目录 `/Users/.../other-project`，三个新 session ID
+因此 TeamChat 支持：
+- **同一目录下多个会话**（不同 session ID，不同对话历史，共享代码）
+- **不同目录下多个会话**（不同 session ID，不同项目，完全隔离）
+
+示例：
+```
+会话 A "Phase 4 开发":  目录 /TeamChat, cici咪=5fbaf844, coco咪=019f40ef, soso咪=04e64d6d
+会话 B "实验分支":       目录 /TeamChat, cici咪=aaaaaaaa, coco咪=bbbbbbbb, soso咪=cccccccc
+会话 C "另一个项目":     目录 /other-project, cici咪=dddddddd, coco咪=eeeeeeee, soso咪=ffffffff
+```
 
 ### 数据结构
 
@@ -152,14 +159,17 @@ CLI 的 session 文件（~/.claude/projects/...）不删除（用户可能还需
   → 聊天室显示该会话的历史消息
 ```
 
-### Session ID 获取方式（两种都可用）
+### Session ID 获取方式
 
-| 方式 | 怎么做 | 适用场景 |
-|---|---|---|
-| **方式 A: stream-json 系统事件** | 冷启动 → 读 stdout JSON → `{"type":"system","session_id":"..."}` | 编程获取 ✅ 推荐 |
-| **方式 B: /exit 命令** | 终端交互时手动输入 `/exit` → 屏幕显示 session ID | 人工验证 |
+**方式 A（推荐）：stream-json 第一行。** 冷启动 CLI → 读 stdout 第一行 JSON → 提取 session_id/thread_id。**三个 CLI 实测都是第一行就包含 ID：**
 
-两种方式拿到的是同一个 session ID。
+| CLI | 第一行事件 | ID 字段 | 实测 |
+|---|---|---|---|
+| Claude | `{"type":"system","session_id":"xxx"}` | `session_id` | ✅ |
+| Codex | `{"type":"thread.started","thread_id":"xxx"}` | `thread_id` | ✅ |
+| Cursor | `{"type":"system","session_id":"xxx"}` | `session_id` | ✅ |
+
+**方式 B（人工验证）：`/exit` 命令。** 终端交互时手动输入。两种方式拿到的是同一个 ID。
 
 ### Step 1: 人类发消息
 
