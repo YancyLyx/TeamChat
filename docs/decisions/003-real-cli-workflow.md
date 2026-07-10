@@ -135,12 +135,12 @@ Agent CLI 的上下文由 **session ID** 决定，不是由目录决定。同一
 Engine:
   1. 验证目录存在且可访问
   2. 写入会话配置到 SQLite
-  3. 对每个 agent:
-     a. cd {目录}
-     b. 冷启动 CLI（不带 --resume）
-     c. 读 stdout stream-json → 第一行 system 事件 → 提取 session_id
-     d. 关进程，保存 session_id
-  4. 三个 session_id 就绪 → 会话状态 = "active"
+  3. 对每个 agent 的第一次调用:
+     → spawn CLI（不带 --resume，冷启动 + 发 prompt 一起做）
+     → stdout 第一行 system/thread.started 事件 → 提取 session_id
+     → 保存到 .teamchat/session_{cli}.txt
+     → 不需要杀进程，prompt 正常执行
+  4. 第二次开始带 --resume <id> 恢复上下文
 ```
 
 ### 删除会话
@@ -159,9 +159,19 @@ CLI 的 session 文件（~/.claude/projects/...）不删除（用户可能还需
   → 聊天室显示该会话的历史消息
 ```
 
-### Session ID 获取方式
+### Session ID 获取
 
-**方式 A（推荐）：stream-json 第一行。** 冷启动 CLI → 读 stdout 第一行 JSON → 提取 session_id/thread_id。**三个 CLI 实测都是第一行就包含 ID：**
+**第一次调用 = 冷启动 + 发 prompt，同时从第一行 stdout 拿 session ID。** 不需要单独的"冷启动→杀进程→再启动"步骤。
+
+```
+第一次调用（冷启动）:
+  spawn CLI（不带 --resume，直接发 prompt）
+  stdout 第一行 → 提取 session_id → 保存到 .teamchat/
+  后续:
+  spawn CLI（带 --resume <id>，恢复上下文）
+```
+
+**三个 CLI 实测都是第一行就包含 ID：**
 
 | CLI | 第一行事件 | ID 字段 | 实测 |
 |---|---|---|---|
