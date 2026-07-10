@@ -59,27 +59,107 @@ stream-json 分离了 text / thinking / tool_use。**text 进聊天室气泡，t
 
 ## 2. 完整流程（"给 Dashboard 加刷新按钮"）
 
-### Step 0: 系统启动，获取 Session ID
+### Step 0: 选择/创建会话
 
 ```
-Engine 启动
-  ↓
-对每个 agent:
-  1. 冷启动 CLI（不带 --resume）
-     Claude: spawn("claude", ["--print", "--output-format", "stream-json", ...])
-     Codex:  spawn("codex", ["exec", "--json", "/exit"])
-     Cursor: spawn("cursor-agent", ["--print", "--output-format", "stream-json", "/exit"])
+前端显示会话列表:
+  ┌─────────────────────────┐
+  │ 📁 TeamChat 开发         │ ← 当前会话，已有 3 个 session ID
+  │ 📁 新项目实验             │ ← pending，还没冷启动
+  │ [+ 新建会话]              │
+  └─────────────────────────┘
 
-  2. 读 stdout 第一个 JSON 事件:
-     Claude:  {"type":"system", ...} → 不包含 session_id？等多几行
-             直到 {"type":"system","session_id":"5fbaf844-..."}
-     Codex:   {"type":"thread.started","thread_id":"019f40ef-..."}
-     Cursor:  {"type":"system","session_id":"04e64d6d-..."}
-
-  3. 捕获 session_id → 存 .teamchat/session_{cli}.txt
-  4. 关闭冷启动进程
-  5. 重新 spawn（带 --resume <id>，等待第一个真正的消息）
+你点击 "TeamChat 开发":
+  → Engine 加载该会话的三个 session ID
+  → 后续所有 spawn 都: cd {该会话目录} + --resume {该会话的 ID}
+  → 上下文延续
 ```
+
+## 2.5 Session 管理 — 多会话、多目录
+
+### 为什么需要多会话
+
+Agent CLI 的上下文绑定在**工作目录 + session ID** 上。同一个目录 + 同一个 session ID = 同一个上下文（记忆延续）。不同目录 = 不同上下文。
+
+因此 TeamChat 需要支持多会话：
+- **会话 A（TeamChat 项目）**：目录 `/Users/.../TeamChat`，三个 session ID 已有
+- **会话 B（另一个项目）**：目录 `/Users/.../other-project`，三个新 session ID
+
+### 数据结构
+
+```json
+{
+  "sessions": [
+    {
+      "id": "sess-001",
+      "name": "TeamChat 开发",
+      "directory": "/Users/yanxinluo/Documents/PycharmProjects/TeamChat",
+      "agents": {
+        "cici咪": {"session_id": "5fbaf844-...", "status": "active"},
+        "coco咪": {"session_id": "019f40ef-...", "status": "active"},
+        "soso咪": {"session_id": "04e64d6d-...", "status": "active"}
+      },
+      "created_at": "2026-07-09",
+      "last_used": "2026-07-09"
+    },
+    {
+      "id": "sess-002",
+      "name": "新项目实验",
+      "directory": "/Users/yanxinluo/Documents/experiment",
+      "agents": {
+        "cici咪": {"session_id": null, "status": "pending"},  ← 还没冷启动
+        "coco咪": {"session_id": null, "status": "pending"},
+        "soso咪": {"session_id": null, "status": "pending"}
+      },
+      "created_at": "2026-07-09"
+    }
+  ]
+}
+```
+
+### 添加新会话的流程
+
+```
+你在前端:
+  1. 点 "新建会话"
+  2. 输入: 名称 = "新项目实验"，目录 = "/Users/yanxinluo/Documents/experiment"
+  3. 点 "创建"
+
+Engine:
+  1. 验证目录存在且可访问
+  2. 写入会话配置到 SQLite
+  3. 对每个 agent:
+     a. cd {目录}
+     b. 冷启动 CLI（不带 --resume）
+     c. 读 stdout stream-json → 第一行 system 事件 → 提取 session_id
+     d. 关进程，保存 session_id
+  4. 三个 session_id 就绪 → 会话状态 = "active"
+```
+
+### 删除会话
+
+```
+删除会话 = 删除 SQLite 中的记录。
+CLI 的 session 文件（~/.claude/projects/...）不删除（用户可能还需要）。
+```
+
+### 切换会话
+
+```
+你点 "TeamChat 开发" 标签:
+  → Engine 加载该会话的 session ID
+  → 后续所有 spawn 都 cd 到该会话的目录 + --resume 对应 ID
+  → 聊天室显示该会话的历史消息
+```
+
+### Session ID 获取方式（两种都可用）
+
+| 方式 | 怎么做 | 适用场景 |
+|---|---|---|
+| **方式 A: stream-json 系统事件** | 冷启动 → 读 stdout JSON → `{"type":"system","session_id":"..."}` | 编程获取 ✅ 推荐 |
+| **方式 B: /exit 命令** | 终端交互时手动输入 `/exit` → 屏幕显示 session ID | 人工验证 |
+
+两种方式拿到的是同一个 session ID。
 
 ### Step 1: 人类发消息
 
