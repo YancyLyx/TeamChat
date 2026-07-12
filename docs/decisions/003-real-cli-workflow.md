@@ -398,3 +398,202 @@ coco咪 完成时如果 cici咪 还在执行 → Engine 暂存结果 → cici咪
 | cici咪 (Claude) | `5fbaf844-4cbc-48b2-9242-7902d098bd81` | `claude --resume <id>` |
 | coco咪 (Codex) | `019f40ef-e8cf-76f0-8b49-6691cc7275f3` | `codex resume <id>` |
 | soso咪 (Cursor) | `04e64d6d-de38-4861-a7ce-87c26d28d77f` | `cursor-agent --resume=<id>` |
+
+---
+
+## 7. MCP Server 设计
+
+### 7.1 什么是 MCP
+
+Model Context Protocol — AI agent 调用外部工具的标准协议。Claude CLI 原生支持。
+
+```
+Agent (cici咪)                  MCP Server (TeamChat)
+     │                                │
+     ├── list_tools() ──────────────→ │ "我有什么工具？"
+     │←── [create_task, update_task]  │
+     │                                │
+     ├── call_tool("create_task",    │
+     │     {agent:"coco咪"}) ──────→ │ 实际调用
+     │←── {task_id: 14} ──────────── │ 返回结构化结果
+```
+
+### 7.2 MCP vs Skill vs Tool 的区别
+
+| | MCP Tool | Skill | 内建 Tool (Bash/Read/Write) |
+|---|---|---|---|
+| **来源** | MCP Server 提供 | 项目 `.md` 文件 | CLI 自带 |
+| **做什么** | 调用外部函数 | 注入 prompt 模板 | 操作文件系统 |
+| **有返回值吗** | ✅ 结构化数据 | ❌ 只是文本注入 | ✅ 命令输出 |
+| **例子** | `create_task(agent, title)` | `/brainstorming` | `Bash("ls")` |
+
+**Skill = 告诉 Agent 怎么想。MCP Tool = 让 Agent 能做什么。**
+
+### 7.3 TeamChat MCP Server
+
+```
+teamchat MCP Server (engine/mcp_server.py):
+  tools:
+    create_task(agent, title, depends_on) → task_id
+    update_task(task_id, status)          → ok
+    list_tasks(status_filter)             → [...]
+    get_session_info()                    → {agents, session_ids, status}
+```
+
+### 7.4 启动方式
+
+Claude CLI 通过 `--mcp-config` 自动启动 MCP Server：
+
+```bash
+claude --print \
+  --output-format stream-json \
+  --input-format stream-json \
+  --permission-prompt-tool stdio \
+  --mcp-config .teamchat/mcp-config.json
+```
+
+`mcp-config.json`:
+```json
+{
+  "mcpServers": {
+    "teamchat": {
+      "command": "python3",
+      "args": ["-m", "engine.mcp_server"],
+      "cwd": "/Users/yanxinluo/Documents/PycharmProjects/TeamChat"
+    }
+  }
+}
+```
+
+Claude CLI 自动 spawn `python3 -m engine.mcp_server`，通过 stdio JSON-RPC 通信。Agent 在思考时直接 `tool_use: mcp__teamchat__create_task`。
+
+### 7.5 为什么用 MCP 而不用文本解析
+
+cici咪 的表述可能变化——"交给coco咪" vs "这个coco咪来做" vs "coco咪适合这个"。**文本解析不可靠。MCP Tool 调用是结构化的，100% 准确。**
+
+---
+
+## 8. 前端设计
+
+### 8.1 整体布局
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  🤖 TeamChat  [📁 会话: TeamChat开发 ▼]          🟢 已连接      │
+├────────┬───────────────────────────────────┬────────────────────┤
+│        │         📌 聊天室                  │                    │
+│ Agent  │                                   │   📋 任务面板       │
+│ 状态    │  🏗️ cici咪: 分析完毕              │                    │
+│        │     → 拆成 #14 #15               │  #14 coco咪 🔧     │
+│ 🏗️cici │  ⚡ coco咪: ✅ #14 完成 PR #22     │  #15 soso咪 ⏳    │
+│ 🟢     │  🔍 soso咪: ✅ Review 通过         │                    │
+│ ⚡coco │  🏗️ cici咪: 全部完成 ✅            │                    │
+│ 🔴     │                                   │                    │
+│ 🔍soso │  ┌─ 审批卡片 ─────────────────┐   │                    │
+│ 🟢     │  │ 🔧 cici咪 请求: Bash        │   │                    │
+│        │  │ git push origin feature     │   │                    │
+│        │  │ [允许]  [拒绝]              │   │                    │
+│        │  └────────────────────────────┘   │                    │
+│        │                                   │                    │
+│        ├───────────────────────────────────┤                    │
+│        │ 💬 @cici咪 ...        📎 [发送]   │                    │
+└────────┴───────────────────────────────────┴────────────────────┘
+```
+
+### 8.2 功能区域说明
+
+#### A. 顶部栏
+
+| 元素 | 功能 |
+|---|---|
+| 🤖 TeamChat | Logo + 标题 |
+| 📁 会话选择器 | 下拉菜单：切换/新建/删除会话 |
+| 🟢 已连接 | WebSocket 连接状态 |
+
+#### B. 左侧：Agent 状态栏
+
+每个 agent 一张紧凑卡片：
+- 头像 emoji + 名字 + 角色
+- 状态指示灯：🟢 空闲 / 🔴 执行中 / ⚪ 离线
+- 当前任务数 + 成功率
+- 点击展开 → 最近会话历史
+
+#### C. 中间：聊天室
+
+| 消息类型 | 样式 | 示例 |
+|---|---|---|
+| 人类消息 | 白色气泡，右对齐 | "加个刷新按钮" |
+| cici咪 text | 蓝色左边框 | "分析完毕..." |
+| coco咪 text | 绿色左边框 | "#14 完成 PR #22" |
+| soso咪 text | 紫色左边框 | "Review 通过 16/16" |
+| 系统通知 | 灰色居中 | "#15 已派发给 soso咪" |
+| 审批卡片 | 黄色边框，内嵌按钮 | "🔧 Bash: git push [允许][拒绝]" |
+| thinking | 灰色折叠区 | "💭 分析中..." 点击展开 |
+
+#### D. 消息输入框
+
+- 文本框：支持 @mention（`@cici咪` `@coco咪` `@soso咪`）
+- @mention 自动补全下拉
+- 📎 附件按钮：上传文件/图片 → 取绝对路径传给 CLI
+- 发送按钮
+- Enter 发送，Shift+Enter 换行
+- 中文输入法 Enter 不误触（已有 IME 处理）
+
+#### E. 右侧：任务面板
+
+| 列 | 内容 |
+|---|---|
+| 📋 待处理 | pending 任务，显示 agent + 标题 |
+| 🔧 进行中 | running 任务，显示 agent + 标题 |
+| ✅ 已完成 | done 任务，显示 agent + 标题 |
+
+- 每个任务卡片：标题 + 指派的 agent
+- 点击 → 跳转 GitHub Issue（如果有）
+- 可折叠
+
+### 8.3 会话管理页面
+
+点击顶部 📁 会话选择器 → 弹出会话管理面板：
+
+```
+┌─────────────────────────────────┐
+│  📁 会话管理                     │
+│                                 │
+│  ┌─────────────────────────┐   │
+│  │ ● TeamChat 开发           │   │  ← 当前
+│  │   /Users/.../TeamChat     │   │
+│  │   cici✅ coco✅ soso✅    │   │
+│  └─────────────────────────┘   │
+│  ┌─────────────────────────┐   │
+│  │ ○ 新项目实验              │   │
+│  │   /Users/.../experiment   │   │
+│  │   cici⏳ coco⏳ soso⏳    │   │
+│  └─────────────────────────┘   │
+│                                 │
+│  [+ 新建会话]                    │
+└─────────────────────────────────┘
+```
+
+**新建会话流程：**
+1. 点击 [+ 新建会话]
+2. 输入：名称、目录绝对路径
+3. Engine 验证目录存在 → 写入 SQLite → 返回会话 ID
+4. 第一次发消息时自动冷启动三个 agent → 捕获 session ID → 保存
+
+### 8.4 按钮与交互汇总
+
+| 按钮/交互 | 位置 | 功能 |
+|---|---|---|
+| 📁 会话选择器 | 顶部栏 | 切换/新建/删除会话 |
+| [允许] [拒绝] | 审批卡片 | Claude 工具审批 |
+| @mention 自动补全 | 输入框 | 选择目标 agent |
+| 📎 附件 | 输入框旁 | 上传文件/图片 |
+| 发送 | 输入框旁 | 发送消息 |
+| Agent 卡片 | 左侧栏 | 点击展开最近会话 |
+| 任务卡片 | 右侧面板 | 点击跳转 GitHub |
+
+### 8.5 参考风格
+
+- **Roundtable**: 干净气泡 + 审批卡片 + Agent 侧边栏
+- **Clowder AI**: Hub 风格、operator 旅程设计
+- 暗色主题（终端风格），所有文字可读
