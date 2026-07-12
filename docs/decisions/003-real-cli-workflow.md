@@ -479,10 +479,13 @@ cici咪 的表述可能变化——"交给coco咪" vs "这个coco咪来做" vs "
 
 ### 8.1 整体风格
 
-- **暗色主题**：深灰/黑底色 (`#111827` → `#1f2937` → `#374151`)
-- **终端/黑客风格**：半透明面板、毛玻璃效果、等宽字体 (JetBrains Mono / Fira Code)
-- **圆角卡片**：`rounded-xl`（12px），柔和阴影
-- **色彩克制**：只用 emoji 和边框颜色区分 agent，不花哨
+> 参考：Roundtable — 浅色干净聊天室风格
+
+- **浅色主题**：白色底色 (`#ffffff`)、浅灰面板 (`#f9fafb` / `#f3f4f6`)、浅边框 (`#e5e7eb`)
+- **现代聊天应用风格**：类 Slack / Linear / Discord 浅色模式
+- **圆角卡片**：`rounded-xl`（12px），柔和阴影 `shadow-sm`
+- **色彩克制**：白色为主，彩色仅用于边框和 emoji。Agent 通过左边框颜色区分（蓝/绿/紫），Human 用蓝色气泡
+- **字体**：系统默认无衬线字体 (Inter / SF Pro)，代码块用等宽字体 (JetBrains Mono)
 - **动画**：淡入新消息、骨架屏加载、状态指示灯呼吸动画
 
 ### 8.2 全局布局 (三栏)
@@ -572,7 +575,7 @@ cici咪 的表述可能变化——"交给coco咪" vs "这个coco咪来做" vs "
 | `agent.success_rate` | 成功率（百分比） |
 | onClick → 展开 | 最近 5 条会话记录（sessions API） |
 
-**样式：** `bg-gray-900/60 border border-gray-700/40 rounded-xl p-3`
+**样式：** `bg-white border border-gray-200 rounded-xl p-3 shadow-sm`
 
 #### C. 聊天室 (中央主区域)
 
@@ -632,17 +635,17 @@ cici咪 的表述可能变化——"交给coco咪" vs "这个coco咪来做" vs "
 | `onApprove` | callback | 审批允许 |
 | `onDeny` | callback | 审批拒绝 |
 
-**消息样式规则：**
+**消息样式规则 (浅色主题)：**
 
 | kind | 对齐 | 气泡颜色 | 边框 |
 |---|---|---|---|
-| `human` | 右对齐 | `bg-blue-600/30` | 无 |
-| `agent` (cici咪) | 左对齐 | `bg-gray-800/60` | `border-l-2 border-blue-400` |
-| `agent` (coco咪) | 左对齐 | `bg-gray-800/60` | `border-l-2 border-green-400` |
-| `agent` (soso咪) | 左对齐 | `bg-gray-800/60` | `border-l-2 border-purple-400` |
-| `system` | 居中 | 无背景 | `text-gray-500 text-xs` |
-| `approval` | 居中（全宽） | `bg-yellow-900/20` | `border border-yellow-600/40 rounded-lg` |
-| `thinking` | 左对齐（折叠） | `bg-gray-900/30` | `text-gray-500 text-xs italic` |
+| `human` | 右对齐 | `bg-blue-500 text-white` | 无 |
+| `agent` (cici咪) | 左对齐 | `bg-gray-50` | `border-l-2 border-blue-400` |
+| `agent` (coco咪) | 左对齐 | `bg-gray-50` | `border-l-2 border-green-400` |
+| `agent` (soso咪) | 左对齐 | `bg-gray-50` | `border-l-2 border-purple-400` |
+| `system` | 居中 | 无背景 | `text-gray-400 text-xs` |
+| `approval` | 居中（全宽） | `bg-yellow-50` | `border border-yellow-300 rounded-lg` |
+| `thinking` | 左对齐（折叠） | `bg-gray-50` | `text-gray-400 text-xs italic` |
 
 #### D. 消息输入框 (底部)
 
@@ -776,4 +779,4 @@ cici咪 的表述可能变化——"交给coco咪" vs "这个coco咪来做" vs "
 
 - **Roundtable** (wenwen-0617): 聊天室气泡、审批卡片、Agent 侧边栏
 - **Clowder AI** (zts212653): Hub 风格、operator 旅程
-- 暗色主题统一使用 Tailwind 灰度色阶 (`gray-950` → `gray-100`)
+- 浅色主题统一使用 Tailwind 灰度色阶 (`gray-50` → `gray-900`)，点缀色用 `blue-400/500`、`green-400`、`purple-400`
