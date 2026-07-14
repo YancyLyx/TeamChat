@@ -77,7 +77,7 @@ class TestTaskBoardFlow:
         )
         worker.start()
 
-        in_progress_section = page.locator("aside").filter(has=page.get_by_text("In Progress", exact=True))
+        in_progress_section = page.locator("aside").filter(has=page.get_by_text("Running", exact=True))
         expect(in_progress_section.get_by_text(token)).to_be_visible(timeout=10_000)
         worker.join(timeout=60)
 

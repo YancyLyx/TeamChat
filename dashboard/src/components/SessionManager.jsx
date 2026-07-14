@@ -10,11 +10,29 @@ const SI = { ready: '\u2705', pending: '\u23f3', failed: '\u274c' }
 const SD = { ready: 'ready', pending: 'pending', failed: 'failed' }
 
 export default function SessionManager({ open, onClose }) {
-  const [sessions] = useState(MOCK_SESSIONS)
+  const [sessions, setSessions] = useState(MOCK_SESSIONS)
   const [activeId, setActiveId] = useState('sess-001')
   const [newName, setNewName] = useState('')
   const [newDir, setNewDir] = useState('')
   if (!open) return null
+
+  const handleCreate = () => {
+    if (!newName.trim() || !newDir.trim()) return
+    const id = `sess-${Date.now()}`
+    setSessions((prev) => [
+      ...prev,
+      {
+        id,
+        name: newName.trim(),
+        directory: newDir.trim(),
+        agents: { 'cici\u54aa': 'pending', 'coco\u54aa': 'pending', 'soso\u54aa': 'pending' },
+        created: new Date().toISOString().slice(0, 10),
+        active: false,
+      },
+    ])
+    setNewName('')
+    setNewDir('')
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
@@ -55,7 +73,7 @@ export default function SessionManager({ open, onClose }) {
           <div className="space-y-2.5">
             <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Session name" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200" />
             <input value={newDir} onChange={e => setNewDir(e.target.value)} placeholder="Absolute directory path" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200" />
-            <button disabled={!newName || !newDir} className="w-full py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-500 disabled:bg-gray-200 disabled:text-gray-400 transition-colors">Create</button>
+            <button disabled={!newName || !newDir} onClick={handleCreate} className="w-full py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-500 disabled:bg-gray-200 disabled:text-gray-400 transition-colors">Create</button>
           </div>
         </div>
       </div>
