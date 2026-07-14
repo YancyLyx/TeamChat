@@ -16,6 +16,21 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.responses import Response
+import json as _stdlib_json
+
+
+class UnicodeJSONResponse(JSONResponse):
+    """JSONResponse that doesn't escape non-ASCII characters (emojis, Chinese, etc)."""
+    def render(self, content) -> bytes:
+        return _stdlib_json.dumps(
+            content,
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=None,
+            separators=(",", ":"),
+        ).encode("utf-8")
 
 from engine.config import load_config
 from engine.runner import create_runner
@@ -46,9 +61,8 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
-        import json as _json
         stale = []
-        text = _json.dumps(message, ensure_ascii=False)
+        text = _stdlib_json.dumps(message, ensure_ascii=False)
         for conn in self.active_connections:
             try:
                 await conn.send_text(text)
@@ -110,6 +124,7 @@ def create_app() -> FastAPI:
         version="0.1.0",
         description="Multi-AI-Agent collaboration platform API",
         lifespan=lifespan,
+        default_response_class=UnicodeJSONResponse,
     )
 
     app.add_middleware(
@@ -134,17 +149,16 @@ app = create_app()
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """Real-time event feed for agent activities and message bus."""
-    import json as _json
     await manager.connect(websocket)
     try:
-        await websocket.send_text(_json.dumps({
+        await websocket.send_text(_stdlib_json.dumps({
             "type": "connected",
             "data": {"message": "Connected to TeamChat real-time feed"},
         }, ensure_ascii=False))
         while True:
             data = await websocket.receive_text()
             if data == "ping":
-                await websocket.send_text(_json.dumps({"type": "pong", "data": {}}, ensure_ascii=False))
+                await websocket.send_text(_stdlib_json.dumps({"type": "pong", "data": {}}, ensure_ascii=False))
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     except Exception as e:
