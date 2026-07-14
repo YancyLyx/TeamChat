@@ -23,14 +23,27 @@ export default function App() {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true); setError(null)
-      const [ar, sr, str] = await Promise.all([
-        fetch(`${API_BASE}/agents`), fetch(`${API_BASE}/sessions?limit=30`), fetch(`${API_BASE}/stats`),
+      const [ar, sr, str, tr] = await Promise.all([
+        fetch(`${API_BASE}/agents`),
+        fetch(`${API_BASE}/sessions?limit=30`),
+        fetch(`${API_BASE}/stats`),
+        fetch(`${API_BASE}/tasks/table`),
       ])
       if (!ar.ok || !sr.ok || !str.ok) throw new Error('API failed')
       const ad = await ar.json(), sd = await sr.json(), st = await str.json()
+      const tableRows = tr.ok ? await tr.json() : []
       setAgents(ad.map((a) => ({ ...a, total_tasks: st?.agents?.[a.name]?.total_calls ?? a.total_tasks ?? 0, success_rate: st?.agents?.[a.name]?.success_rate ?? a.success_rate ?? 0, avg_duration_ms: st?.agents?.[a.name]?.avg_duration_ms ?? a.avg_duration_ms ?? 0 })))
       const ba = {}; for (const s of sd) { if (!ba[s.agent_name]) ba[s.agent_name] = []; ba[s.agent_name].push(s) }; setAgSessions(ba)
-      setTasks(sd.map((s) => ({ id: `session-${s.id}`, title: s.prompt.slice(0, 80), agent: s.agent_name, status: s.exit_code === 0 ? 'done' : 'failed', exit_code: s.exit_code, duration_ms: s.duration_ms, time: new Date(s.started_at).toLocaleTimeString(), preview: s.output.slice(0, 100) })))
+      const sessionTasks = sd.map((s) => ({ id: `session-${s.id}`, title: s.prompt.slice(0, 80), agent: s.agent_name, status: s.exit_code === 0 ? 'done' : 'failed', exit_code: s.exit_code, duration_ms: s.duration_ms, time: new Date(s.started_at).toLocaleTimeString(), preview: s.output.slice(0, 100) }))
+      const tableTasks = tableRows.map((t) => ({
+        id: `table-${t.id}`,
+        title: t.title,
+        agent: t.agent,
+        status: t.status === 'done' ? 'done' : t.status === 'failed' ? 'failed' : t.status,
+        duration_ms: null,
+        preview: t.output_summary || '',
+      }))
+      setTasks([...tableTasks, ...sessionTasks])
     } catch (err) { setError(err.message) }
     finally { setLoading(false) }
   }, [])
@@ -42,6 +55,18 @@ export default function App() {
     const nm = wsMessages.slice(lastMcRef.current); lastMcRef.current = wsMessages.length
     for (const m of nm) {
       if (m.type === 'task_started') { const d = m.data || {}; tc += 1; setTasks(p => [{ id: `t-${tc}`, title: (d.prompt || '').slice(0, 80), agent: d.agent, status: 'running', time: new Date().toLocaleTimeString() }, ...p]); setAgents(p => p.map(a => a.name === d.agent ? { ...a, is_busy: true } : a)) }
+      if (m.type === 'task_table_updated') {
+        const d = m.data || {}
+        const tid = d.id ? `table-${d.id}` : null
+        if (tid) {
+          setTasks(p => {
+            const idx = p.findIndex(t => t.id === tid)
+            const row = { id: tid, title: (d.title || '').slice(0, 80), agent: d.agent, status: d.status === 'done' ? 'done' : d.status === 'failed' ? 'failed' : d.status, duration_ms: d.duration_ms, preview: d.output_summary || '' }
+            if (idx >= 0) { const next = [...p]; next[idx] = { ...next[idx], ...row }; return next }
+            return [row, ...p]
+          })
+        }
+      }
       if (m.type === 'task_complete') { const d = m.data || {}; setTasks(p => { const si = d.session_id ? `session-${d.session_id}` : null; let mt = false; return p.map(t => { if (mt) return t; if (si && t.id === si) { mt = true; return { ...t, status: d.success ? 'done' : 'failed', exit_code: d.success ? 0 : 1, duration_ms: d.duration_ms, preview: d.output_preview } } if (!si && t.agent === d.agent && t.status === 'running') { mt = true; return { ...t, status: d.success ? 'done' : 'failed', exit_code: d.success ? 0 : 1, duration_ms: d.duration_ms, preview: d.output_preview } } return t }) }); setAgents(p => p.map(a => a.name === d.agent ? { ...a, is_busy: false } : a)) }
     }
   }, [wsMessages])

@@ -10,6 +10,7 @@ function ft(iso) { try { return new Date(iso).toLocaleTimeString('zh-CN', { hour
 export default function ChatRoom({ wsMessages, connectionStatus }) {
   const [chatMessages, setChatMessages] = useState([])
   const [loading, setLoading] = useState(true)
+  const [resolvedApprovals, setResolvedApprovals] = useState(() => new Set())
   const scrollRef = useRef(null)
   const lastWcRef = useRef(0)
   const penRef = useRef(false)
@@ -17,12 +18,26 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
 
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight }, [chatMessages])
 
+  const handleApprovalDecision = useCallback((messageId, decision) => {
+    setResolvedApprovals((prev) => new Set(prev).add(messageId))
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `approval-result-${messageId}`,
+        kind: 'system',
+        agent: 'system',
+        content: decision === 'allow' ? '已允许工具执行' : '已拒绝工具执行',
+        timestamp: new Date().toISOString(),
+      },
+    ])
+  }, [])
+
   const fetchInit = useCallback(async () => {
     try {
       setLoading(true)
       const [agentsRes, sessionsRes] = await Promise.all([
         fetch(`${API_BASE}/agents`),
-        fetch(`${API_BASE}/sessions?limit=30`),
+        fetch(`${API_BASE}/sessions?limit=30&tag=prod`),
       ])
       if (!agentsRes.ok || !sessionsRes.ok) throw new Error('API request failed')
       const sessionsData = await sessionsRes.json()
@@ -62,7 +77,7 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
       if (m.type === 'chat_message') {
         const d = m.data || {}; const mid = d.id || `c-${Date.now()}`
         if (mid && seenIds.current.has(mid)) continue; if (mid) seenIds.current.add(mid)
-        const km = { human: 'human', agent_reply: 'agent', agent_message: 'agent', system: 'system', approval: 'approval' }
+        const km = { human: 'human', agent_reply: 'agent', agent_message: 'agent', system: 'system', approval: 'approval', thinking: 'thinking' }
         adds.push({ id: mid, kind: km[d.kind] || (d.agent === 'human' ? 'human' : 'agent'), agent: d.agent || 'system', content: d.content || '', timestamp: d.timestamp || new Date().toISOString(), thinking_sections: d.thinking_sections, tool_name: d.tool_name, tool_input: d.tool_input })
       } else if (m.type === 'connected') {
         adds.push({ id: `cc-${Date.now()}`, kind: 'system', agent: 'system', content: '\u5df2\u8fde\u63a5 TeamChat \u5b9e\u65f6\u901a\u9053', timestamp: new Date().toISOString() })
@@ -101,7 +116,17 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
           </div>
         )}
         {!loading && chatMessages.length === 0 && <div className="flex items-center justify-center h-full text-gray-400 text-sm">\u6682\u65e0\u6d88\u606f</div>}
-        {chatMessages.map((msg, i) => <ChatMessage key={msg.id || i} message={msg} />)}
+        {chatMessages.map((msg, i) => {
+          if (msg.kind === 'approval' && resolvedApprovals.has(msg.id)) return null
+          const enriched = msg.kind === 'approval'
+            ? {
+                ...msg,
+                onApprove: () => handleApprovalDecision(msg.id, 'allow'),
+                onDeny: () => handleApprovalDecision(msg.id, 'deny'),
+              }
+            : msg
+          return <ChatMessage key={msg.id || i} message={enriched} />
+        })}
         <div className="h-2" />
       </div>
       <div className="px-4 py-1 border-t border-gray-100 flex items-center gap-2 bg-white">

@@ -232,18 +232,23 @@ class TaskTable:
     # -- helpers --
 
     def _row_to_task(self, row: tuple) -> Task:
-        depends_raw = row[4] if len(row) > 4 else "[]"
+        depends_raw = row[5] if len(row) > 5 else "[]"
         try:
             depends = json.loads(depends_raw) if isinstance(depends_raw, str) else depends_raw
         except (json.JSONDecodeError, TypeError):
             depends = []
         return Task(
-            id=row[0], agent=row[1], title=row[2], description=row[3],
-            status=row[4], depends_on=depends, github_issue=row[5] if len(row) > 5 else "",
-            output_summary=row[6] if len(row) > 6 else "",
-            created_at=row[7] if len(row) > 7 else "",
-            started_at=row[8] if len(row) > 8 else "",
-            finished_at=row[9] if len(row) > 9 else "",
+            id=row[0],
+            agent=row[1],
+            title=row[2],
+            description=row[3],
+            status=row[4],
+            depends_on=depends,
+            github_issue=row[6] if len(row) > 6 else "",
+            output_summary=row[7] if len(row) > 7 else "",
+            created_at=row[8] if len(row) > 8 else "",
+            started_at=row[9] if len(row) > 9 else "",
+            finished_at=row[10] if len(row) > 10 else "",
         )
 
 

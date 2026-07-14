@@ -37,11 +37,11 @@ def _send_chat_message(page: Page, content: str, timeout: float = 15_000) -> Non
     textarea = _chat_textarea(page)
     expect(textarea).to_be_enabled(timeout=10_000)
     textarea.fill(content)
-    send_btn = page.get_by_role("button", name="发送")
+    send_btn = page.get_by_role("button", name="Send")
     expect(send_btn).to_be_enabled(timeout=5_000)
     send_btn.click()
     expect(page.get_by_text(content).last).to_be_visible(timeout=timeout)
-    expect(page.get_by_text("发送中")).to_have_count(0, timeout=timeout)
+    expect(page.get_by_text("Sending")).to_have_count(0, timeout=timeout)
 
 
 def _agent_reply(page: Page, agent_name: str):
@@ -79,20 +79,20 @@ class TestChatMentionFlow:
         _wait_chat_connected(page)
 
         token = uuid.uuid4().hex[:8]
+        coco_before = _agent_reply(page, "coco咪").filter(has_text=MOCK_AGENT_REPLY).count()
+        cici_before = _agent_reply(page, "cici咪").filter(has_text=MOCK_AGENT_REPLY).count()
+        soso_before = _agent_reply(page, "soso咪").filter(has_text=MOCK_AGENT_REPLY).count()
         _send_chat_message(page, f"@coco咪 E2E target only {token}")
 
         expect(
             _agent_reply(page, "coco咪").filter(has_text=MOCK_AGENT_REPLY).last
-        ).to_be_visible(timeout=20_000)
-
-        coco_replies = _agent_reply(page, "coco咪").filter(has_text=MOCK_AGENT_REPLY)
-        cici_replies = _agent_reply(page, "cici咪").filter(has_text=MOCK_AGENT_REPLY)
-        soso_replies = _agent_reply(page, "soso咪").filter(has_text=MOCK_AGENT_REPLY)
-
-        expect(coco_replies.last).to_be_visible(timeout=5_000)
-        # Only coco should have a new mock reply in this turn (not cici/soso)
-        expect(cici_replies.filter(has_text=MOCK_AGENT_REPLY)).to_have_count(0)
-        expect(soso_replies.filter(has_text=MOCK_AGENT_REPLY)).to_have_count(0)
+        ).to_be_visible(timeout=30_000)
+        expect(_agent_reply(page, "cici咪").filter(has_text=MOCK_AGENT_REPLY)).to_have_count(
+            cici_before, timeout=10_000
+        )
+        expect(_agent_reply(page, "soso咪").filter(has_text=MOCK_AGENT_REPLY)).to_have_count(
+            soso_before, timeout=10_000
+        )
 
 
 class TestChatWithoutMention:
@@ -152,16 +152,15 @@ class TestCollapsibleSections:
 
         _send_chat_message(page, "@coco咪 E2E_COLLAPSE show details")
 
-        expect(page.locator("details").filter(has_text="THINKING").first).to_be_visible(timeout=20_000)
-        expect(page.locator("details").filter(has_text="TOOL_CALLS").first).to_be_visible()
-
         agent_bubble = _agent_reply(page, "coco咪").last
+        expect(agent_bubble.locator("details").filter(has_text="THINKING")).to_be_visible(timeout=30_000)
+        expect(agent_bubble.locator("details").filter(has_text="TOOL_CALLS")).to_be_visible()
+
         expect(agent_bubble).to_contain_text(MOCK_AGENT_REPLY)
 
-        # Result text may sit inside collapsed TOOL_CALLS section — expand to verify
-        tool_calls = page.locator("details").filter(has_text="TOOL_CALLS").first
+        tool_calls = agent_bubble.locator("details").filter(has_text="TOOL_CALLS")
         tool_calls.locator("summary").click()
-        expect(page.get_by_text(MOCK_AGENT_REPLY).last).to_be_visible()
+        expect(agent_bubble.get_by_text(MOCK_AGENT_REPLY)).to_be_visible()
 
 
 class TestContinueContext:

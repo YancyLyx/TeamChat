@@ -62,6 +62,44 @@ def inject_bus_message(app, content: str) -> None:
     app.state.loop.call_soon_threadsafe(_send)
 
 
+def broadcast_ws(app, message: dict) -> None:
+    """Broadcast a WebSocket message from the API event loop."""
+
+    async def _send() -> None:
+        await app.state.ws_manager.broadcast(message)
+
+    future = asyncio.run_coroutine_threadsafe(_send(), app.state.loop)
+    future.result(timeout=5)
+
+
+def seed_task_table(
+    app,
+    *,
+    agent: str,
+    title: str,
+    status: str = "pending",
+    depends_on: list[int] | None = None,
+) -> int:
+    """Insert a TaskTable row on the API event loop."""
+    result_holder: dict[str, int] = {}
+
+    def _write() -> None:
+        task = app.state.task_table.create(
+            agent, title, depends_on=depends_on or []
+        )
+        if status != "pending":
+            app.state.task_table.update(task.id, status=status)
+        result_holder["id"] = task.id
+
+    app.state.loop.call_soon_threadsafe(_write)
+    deadline = time.time() + 5
+    while "id" not in result_holder and time.time() < deadline:
+        time.sleep(0.05)
+    if "id" not in result_holder:
+        raise RuntimeError("Timed out seeding task table row")
+    return result_holder["id"]
+
+
 def seed_session(
     app,
     *,
