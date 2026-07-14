@@ -24,6 +24,7 @@ from engine.store import create_store
 from engine.bus import MessageBus
 from engine.task_table import create_task_table
 from engine.runtime import create_runtime
+from engine.orchestrator import Orchestrator
 
 from api.routes import agents, sessions, tasks, chat
 
@@ -80,6 +81,7 @@ async def lifespan(app: FastAPI):
     app.state.bus = bus
     app.state.task_table = task_table
     app.state.runtime = runtime
+    app.state.orchestrator = Orchestrator(task_table)
     app.state.ws_manager = manager
     app.state.loop = asyncio.get_running_loop()
 

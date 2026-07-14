@@ -123,3 +123,48 @@ async def get_task(request: Request, task_id: int):
         finished_at=row.finished_at,
         created_at=row.created_at,
     )
+
+# ---- TaskTable endpoints ----
+
+from pydantic import BaseModel
+
+class TaskCreateRequest(BaseModel):
+    agent: str
+    title: str
+    description: str = ""
+    depends_on: list[int] = []
+
+@router.get("/table")
+async def list_tasks(request: Request, status: str | None = None, agent: str | None = None):
+    """List tasks from the task table (ADR-003 C1)."""
+    tt = request.app.state.task_table
+    tasks = tt.list_tasks(status=status, agent=agent)
+    return [t.to_dict() for t in tasks]
+
+@router.get("/table/stats")
+async def task_stats(request: Request):
+    """Get task completion statistics."""
+    return request.app.state.task_table.stats()
+
+@router.get("/table/{task_id}")
+async def get_task(request: Request, task_id: int):
+    tt = request.app.state.task_table
+    task = tt.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task #{task_id} not found")
+    return task.to_dict()
+
+@router.post("/table", response_model=dict)
+async def create_task(request: Request, req: TaskCreateRequest):
+    tt = request.app.state.task_table
+    task = tt.create(req.agent, req.title, req.description, req.depends_on)
+    return task.to_dict()
+
+@router.patch("/table/{task_id}")
+async def update_task(request: Request, task_id: int, body: dict):
+    tt = request.app.state.task_table
+    task = tt.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task #{task_id} not found")
+    tt.update(task_id, **body)
+    return tt.get(task_id).to_dict()
