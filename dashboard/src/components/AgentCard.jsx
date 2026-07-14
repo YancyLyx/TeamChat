@@ -1,73 +1,53 @@
 import { useState } from 'react'
 
 const AGENT_MAP = {
-  'cici咪': { emoji: '🏗️', border: 'border-blue-400', nameColor: 'text-blue-600', role: '架构师', bg: 'bg-white' },
-  'coco咪': { emoji: '⚡', border: 'border-green-400', nameColor: 'text-green-600', role: '全栈开发', bg: 'bg-white' },
-  'soso咪': { emoji: '🔍', border: 'border-purple-400', nameColor: 'text-purple-600', role: 'QA', bg: 'bg-white' },
-}
-
-function formatTime(iso) {
-  try {
-    const d = new Date(iso)
-    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-  } catch { return iso }
+  'cici咪': { emoji: '\U0001f3d7\ufe0f', border: 'border-blue-400', nameColor: 'text-blue-600', role: '架构师' },
+  'coco咪': { emoji: '\u26a1', border: 'border-green-400', nameColor: 'text-green-600', role: '全栈开发' },
+  'soso咪': { emoji: '\U0001f50d', border: 'border-purple-400', nameColor: 'text-purple-600', role: 'QA' },
 }
 
 export default function AgentCard({ agent, sessions = [], compact }) {
   const [expanded, setExpanded] = useState(false)
-  const info = AGENT_MAP[agent.name] || { emoji: '🤖', border: 'border-gray-300', nameColor: 'text-gray-700', role: agent.role || '', bg: 'bg-white' }
-
+  const info = AGENT_MAP[agent.name] || { emoji: '\U0001f916', border: 'border-gray-300', nameColor: 'text-gray-700', role: agent.role || '' }
   const statusClass = agent.is_busy ? 'busy' : 'idle'
-  const statusText = agent.is_busy ? '执行中' : '空闲'
   const rate = (agent.success_rate * 100).toFixed(0)
 
   if (compact) {
     return (
-      <div
-        className="flex items-center gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors"
-        onClick={() => setExpanded(!expanded)}
-      >
+      <div className="flex items-center gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors" onClick={() => setExpanded(!expanded)}>
         <span className="text-lg">{info.emoji}</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
             <span className={`text-sm font-medium ${info.nameColor}`}>{agent.name}</span>
             <span className={`status-dot ${statusClass}`} />
           </div>
-          <p className="text-xs text-gray-400">{agent.total_tasks} tasks · {rate}%</p>
+          <p className="text-xs text-gray-400">{agent.total_tasks} tasks \u00b7 {rate}%</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div
-      className={`bg-white border ${expanded ? info.border : 'border-gray-200'} rounded-xl p-3.5 shadow-sm cursor-pointer transition-all hover:shadow-md`}
-      onClick={() => setExpanded(!expanded)}
-    >
+    <div className={`bg-white border ${expanded ? info.border : 'border-gray-200'} rounded-xl p-3.5 shadow-sm cursor-pointer transition-all hover:shadow-md`} onClick={() => setExpanded(!expanded)}>
       <div className="flex items-center gap-3">
         <span className="text-xl">{info.emoji}</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h3 className={`font-semibold text-sm ${info.nameColor}`}>{agent.name}</h3>
-            <span className={`status-dot ${statusClass}`} title={statusText} />
+            <span className={`status-dot ${statusClass}`} />
           </div>
           <p className="text-xs text-gray-400 mt-0.5">{info.role}</p>
         </div>
       </div>
-
       <div className="mt-3 flex items-center gap-3 text-xs">
         <span className="text-gray-500"><strong className="text-gray-700">{agent.total_tasks}</strong> tasks</span>
         <span className="text-gray-300">|</span>
         <span className={agent.success_rate >= 0.8 ? 'text-green-600' : 'text-yellow-600'}><strong>{rate}%</strong></span>
       </div>
-
-      {agent.avg_duration_ms > 0 && (
-        <div className="mt-1 text-xs text-gray-400">avg {(agent.avg_duration_ms / 1000).toFixed(1)}s</div>
-      )}
-
+      {agent.avg_duration_ms > 0 && <div className="mt-1 text-xs text-gray-400">avg {(agent.avg_duration_ms / 1000).toFixed(1)}s</div>}
       {expanded && sessions.length > 0 && (
         <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5 max-h-40 overflow-y-auto">
-          <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide">最近会话</p>
+          <p className="text-[10px] text-gray-400 font-semibold uppercase">最近会话</p>
           {sessions.slice(0, 5).map((s) => (
             <div key={s.id} className="bg-gray-50 rounded-lg p-2 text-xs">
               <div className="flex justify-between text-gray-400">
@@ -79,10 +59,7 @@ export default function AgentCard({ agent, sessions = [], compact }) {
           ))}
         </div>
       )}
-
-      {expanded && sessions.length === 0 && (
-        <div className="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-400">暂无会话记录</div>
-      )}
+      {expanded && sessions.length === 0 && <div className="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-400">暂无会话记录</div>}
     </div>
   )
 }
