@@ -22,8 +22,10 @@ from engine.runner import create_runner
 from engine.router import Router
 from engine.store import create_store
 from engine.bus import MessageBus
+from engine.task_table import create_task_table
+from engine.runtime import create_runtime
 
-from api.routes import agents, sessions, tasks
+from api.routes import agents, sessions, tasks, chat
 
 logger = logging.getLogger(__name__)
 
@@ -65,12 +67,19 @@ async def lifespan(app: FastAPI):
     router_inst = Router()
     bus = MessageBus(config)
     bus.init()
+    task_table = create_task_table(config)
+    runtime = create_runtime(config)
+
+    # Discover existing sessions
+    runtime.discover_sessions()
 
     app.state.config = config
     app.state.store = store
     app.state.runner = runner
     app.state.router = router_inst
     app.state.bus = bus
+    app.state.task_table = task_table
+    app.state.runtime = runtime
     app.state.ws_manager = manager
     app.state.loop = asyncio.get_running_loop()
 
@@ -84,6 +93,8 @@ async def lifespan(app: FastAPI):
     logger.info("TeamChat API ready")
     yield
 
+    await runtime.close()
+    task_table.close()
     store.close()
     logger.info("TeamChat API shut down")
 
@@ -108,6 +119,7 @@ def create_app() -> FastAPI:
     app.include_router(agents.router)
     app.include_router(sessions.router)
     app.include_router(tasks.router)
+    app.include_router(chat.router)
 
     return app
 
