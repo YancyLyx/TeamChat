@@ -46,10 +46,12 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
+        import json as _json
         stale = []
+        text = _json.dumps(message, ensure_ascii=False)
         for conn in self.active_connections:
             try:
-                await conn.send_json(message)
+                await conn.send_text(text)
             except Exception:
                 stale.append(conn)
         for conn in stale:
@@ -132,16 +134,17 @@ app = create_app()
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """Real-time event feed for agent activities and message bus."""
+    import json as _json
     await manager.connect(websocket)
     try:
-        await websocket.send_json({
+        await websocket.send_text(_json.dumps({
             "type": "connected",
             "data": {"message": "Connected to TeamChat real-time feed"},
-        })
+        }, ensure_ascii=False))
         while True:
             data = await websocket.receive_text()
             if data == "ping":
-                await websocket.send_json({"type": "pong", "data": {}})
+                await websocket.send_text(_json.dumps({"type": "pong", "data": {}}, ensure_ascii=False))
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     except Exception as e:
