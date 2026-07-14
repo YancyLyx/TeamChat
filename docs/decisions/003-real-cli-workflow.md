@@ -780,3 +780,114 @@ cici咪 的表述可能变化——"交给coco咪" vs "这个coco咪来做" vs "
 - **Roundtable** (wenwen-0617): 聊天室气泡、审批卡片、Agent 侧边栏
 - **Clowder AI** (zts212653): Hub 风格、operator 旅程
 - 浅色主题统一使用 Tailwind 灰度色阶 (`gray-50` → `gray-900`)，点缀色用 `blue-400/500`、`green-400`、`purple-400`
+
+---
+
+## 9. 评估 & 可追踪指标
+
+### 9.1 为什么需要指标？
+
+没有指标就无法回答：
+- "TeamChat 真的减少了我的工作量吗？"
+- "coco咪 和 soso咪 效率如何？"
+- "哪个环节最慢？"
+
+指标不仅是评估系统，也是优化方向。
+
+### 9.2 三级评估指标
+
+#### Level 1: Agent 效能（单个咪的工作效率）
+
+| 指标 | 计算 | 在哪个面板显示 |
+|---|---|---|
+| **任务完成数** | done 任务总数 | Agent 侧边栏 |
+| **成功率** | done / (done + failed) | Agent 侧边栏 |
+| **平均耗时** | Σ duration_ms / count | Agent 卡片展开 |
+| **Token 消耗** | Σ token_usage（来自 CLI done 事件） | Agent 卡片展开 |
+| **审批通过率** | approved / total_approvals（仅 Claude） | Agent 卡片展开 |
+| **重试次数** | Σ retry_count（来自失败处理） | 详情面板 |
+
+#### Level 2: 流程效率（协作流程的快慢）
+
+| 指标 | 计算 | 在哪个面板显示 |
+|---|---|---|
+| **任务平均周转时间** | created_at → closed_at | 统计面板 |
+| **队列等待时间** | ready_at → started_at | 统计面板 |
+| **Review 周期** | review_requested → review_completed | 统计面板 |
+| **阻塞任务数** | pending 且 depends_on 未满足 | 任务面板 |
+
+#### Level 3: 人类解放度（核心价值指标）
+
+| 指标 | 计算 | 含义 |
+|---|---|---|
+| **自动化率** | Engine 自动完成的步骤 / 总步骤 | 越高说明你越不需要参与 |
+| **人工介入次数** | 人类审批 + 手动脚本 + 手动开 Issue | 越低越好 |
+| **消息到完成时间** | 人类发消息 → 全部任务 done | 你从"提需求"到"看到结果"的时间 |
+| **上下文保持度** | 咪是否记得之前讨论的内容（session --resume 成功率） | 越高说明 CLI 会话管理可靠 |
+
+### 9.3 追踪数据存储
+
+所有追踪数据存 SQLite `sessions` 表（已有），扩展 `metrics` 表：
+
+```sql
+CREATE TABLE IF NOT EXISTS metrics (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT    NOT NULL,     -- TeamChat session ID（会话管理器中的）
+    metric_type TEXT    NOT NULL,     -- task_created / task_done / approval_requested / ...
+    agent_name  TEXT,                 -- 哪个咪
+    task_id     INTEGER,              -- 关联的任务 ID
+    value       TEXT,                 -- JSON: {duration_ms, token_usage, ...}
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+```
+
+### 9.4 追踪面板设计
+
+在右侧任务面板上加一个 Tab 切换：
+
+```
+┌─ Task Panel ──────────┐
+│ [📋 Tasks] [📊 Stats]  │  ← Tab 切换
+│                        │
+│ ── Stats View ──      │
+│                        │
+│ Agent Performance:     │
+│  🏗️ cici咪  5 tasks    │
+│  ████████████ 100%     │
+│  avg 3.2s · 12K tokens │
+│                        │
+│  ⚡ coco咪   3 tasks    │
+│  ██████████░ 95%       │
+│  avg 8.1s · 8K tokens  │
+│                        │
+│  🔍 soso咪   2 tasks    │
+│  ████████████ 100%     │
+│  avg 4.5s · 5K tokens  │
+│                        │
+│ ── Weekly Summary ──  │
+│  Tasks: 10 done, 0 open│
+│  Avg cycle: 12 min     │
+│  Human actions: 3      │
+│  Automation rate: 87%  │
+└────────────────────────┘
+```
+
+### 9.5 直观效果
+
+#### 实施前（人肉路由）
+- 你在 3 个终端间复制粘贴
+- 你不知道 coco咪 是否完成了
+- 你手动判断下一步
+- 没有记录，过几天忘了谁做了什么
+
+#### 实施后（TeamChat）
+- 聊天室看到所有活动
+- Agent 状态面板实时显示谁忙谁闲
+- cici咪 自动分析 → 派发 → 审核
+- 所有操作可回溯（SQLite + GitHub Issues）
+- 统计面板看趋势
+
+**可量化的验证方式：**
+1. **任务完成速度**：同一个需求（如"加刷新按钮"），人肉 vs TeamChat 的端到端时间对比
+2. **人工操作次数**：统计人类审批和手动介入的次数变化
+3. **协作日志完整性**：GitHub Issues 关闭率（当前已经 10/10 ✅）
