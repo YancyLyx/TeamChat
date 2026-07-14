@@ -35,7 +35,6 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_name);
 CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_type ON sessions(task_type);
-CREATE INDEX IF NOT EXISTS idx_sessions_tag ON sessions(tag);
 """
 
 
@@ -90,6 +89,7 @@ class SessionStore:
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(sessions)")}
         if "tag" not in columns:
             self._conn.execute("ALTER TABLE sessions ADD COLUMN tag TEXT NOT NULL DEFAULT 'prod'")
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_tag ON sessions(tag)")
         self._conn.commit()
 
     def close(self):
