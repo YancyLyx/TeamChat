@@ -405,6 +405,40 @@ class TestCliSessionExtract:
         raw = '{"session_id":"5fbaf844-4cbc-48b2-9242-7902d098bd81","type":"system"}\n'
         assert extract_cli_session_id(raw) == "5fbaf844-4cbc-48b2-9242-7902d098bd81"
 
+    def test_extract_cursor_system_session_id(self):
+        from engine.runner import extract_cli_session_id
+
+        raw = (
+            '{"type":"system","session_id":"04e64d6d-de38-4861-a7ce-87c26d28d77f"}\n'
+            '{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}\n'
+        )
+        assert extract_cli_session_id(raw) == "04e64d6d-de38-4861-a7ce-87c26d28d77f"
+
+    def test_parse_cursor_jsonl_output(self):
+        from engine.runner import parse_cursor_jsonl_output
+
+        raw = (
+            '{"type":"system","session_id":"04e64d6d-de38-4861-a7ce-87c26d28d77f"}\n'
+            '{"type":"assistant","message":{"content":[{"type":"text","text":"Hello from soso咪"}]}}\n'
+        )
+        assert parse_cursor_jsonl_output(raw) == "Hello from soso咪"
+
+    def test_cursor_cli_uses_stream_json(self):
+        from engine.config import Config, AGENT_SOSO
+
+        config = Config(
+            repo_owner="test", repo_name="test", repo_url="https://github.com/test/test",
+        )
+        cmd = config.get_cli_command(AGENT_SOSO, "hello")
+        assert "--print" in cmd
+        assert "stream-json" in cmd
+
+        resume = config.get_cli_command(
+            AGENT_SOSO, "hello", session_id="04e64d6d-de38-4861-a7ce-87c26d28d77f",
+        )
+        assert "--resume=04e64d6d-de38-4861-a7ce-87c26d28d77f" in resume
+        assert "stream-json" in resume
+
 
 class TestTokenAndToolStats:
     """PR #54 — token_stats / tool_stats helpers."""

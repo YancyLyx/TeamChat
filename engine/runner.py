@@ -40,11 +40,40 @@ def extract_cli_session_id(raw_output: str) -> str:
         sid = evt.get("session_id") or evt.get("thread_id")
         if isinstance(sid, str) and len(sid) > 8:
             return sid
-        if evt.get("type") == "thread.started":
+        if evt.get("type") in ("system", "session_init", "thread.started"):
             tid = evt.get("thread_id") or evt.get("id")
             if isinstance(tid, str) and len(tid) > 8:
                 return tid
     return ""
+
+
+def parse_cursor_jsonl_output(raw_output: str) -> str:
+    """Extract assistant-visible text from Cursor stream-json stdout."""
+    text_parts: list[str] = []
+    for line in raw_output.splitlines():
+        line = line.strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            raw = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(raw, dict):
+            continue
+        etype = raw.get("type", "")
+        if etype == "assistant":
+            message = raw.get("message") or {}
+            for item in message.get("content") or []:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    text = item.get("text", "")
+                    if text:
+                        text_parts.append(text)
+        elif etype == "result":
+            result = raw.get("result")
+            if isinstance(result, str) and result:
+                text_parts.append(result)
+    cleaned = "\n".join(text_parts).strip()
+    return cleaned
 
 # ---- Data types ----
 
@@ -200,9 +229,11 @@ class AgentRunner:
         duration_ms = int((time.monotonic() - started_ms) * 1000)
         finished_at = datetime.now(timezone.utc)
         raw_output = (stdout.decode("utf-8", errors="replace") if stdout else "")
-        cli_session_id = extract_cli_session_id(raw_output)
-        output = raw_output
         error_output = (stderr.decode("utf-8", errors="replace") if stderr else "")
+        cli_session_id = extract_cli_session_id(raw_output)
+        if not cli_session_id and error_output:
+            cli_session_id = extract_cli_session_id(error_output)
+        output = raw_output
 
         if error_output:
             logger.warning(f"⚠️  {agent.name} stderr: {error_output[:200]}")
@@ -239,6 +270,10 @@ class AgentRunner:
             if saw_json_event:
                 output = clean_output
                 token_usage = usage
+        elif agent.cli == "cursor":
+            cleaned = parse_cursor_jsonl_output(output)
+            if cleaned:
+                output = cleaned
 
         result = AgentResult(
             agent_name=agent.name,
