@@ -13,10 +13,13 @@ Usage:
 import logging
 import asyncio
 from contextlib import asynccontextmanager
+import os
+import uuid
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi import File, UploadFile
 from starlette.responses import Response
 import json as _stdlib_json
 
@@ -174,7 +177,20 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.get("/api/health")
 async def health():
     """Health check endpoint."""
-    return {"status": "ok", "version": "0.1.0"}
+   return {"status": "ok", "version": "0.1.0"}
+
+
+@app.post("/api/upload")
+async def upload_file(file: UploadFile = File(...)):
+    """Save an uploaded file to /tmp/ and return the absolute path."""
+    safe_name = file.filename or "attachment.bin"
+    ext = os.path.splitext(safe_name)[1] or ".png"
+    filename = f"teamchat-{uuid.uuid4().hex[:12]}{ext}"
+    filepath = os.path.join("/tmp", filename)
+    content = await file.read()
+    with open(filepath, "wb") as f:
+        f.write(content)
+    return {"path": filepath, "name": safe_name, "size": len(content)}
 
 
 @app.get("/api/stats")
