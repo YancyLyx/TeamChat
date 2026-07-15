@@ -175,8 +175,22 @@ async def health():
 @app.get("/api/stats")
 async def stats(request: Request):
     """Get aggregated statistics for all agents."""
+    from engine.config import ALL_AGENTS
+
     store = request.app.state.store
-    return {"agents": store.stats_by_agent()}
+    by_agent = store.stats_by_agent()
+    agents = {}
+    for agent in ALL_AGENTS:
+        agents[agent.name] = by_agent.get(
+            agent.name,
+            {
+                "total_calls": 0,
+                "total_success": 0,
+                "success_rate": 0.0,
+                "avg_duration_ms": 0,
+            },
+        )
+    return {"agents": agents}
 
 
 if __name__ == "__main__":

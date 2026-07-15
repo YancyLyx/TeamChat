@@ -181,18 +181,20 @@ class TestSessionManager:
         _goto(page, e2e_servers["dashboard_url"])
         _wait_connected(page)
 
-        page.get_by_role("button", name="TeamChat develop").click()
+        page.get_by_role("button").filter(has_text="TeamChat develop").click()
         expect(page.get_by_role("heading", name="Session Manager")).to_be_visible()
-
-        page.locator("div").filter(has_text="New experiment").get_by_role("button", name="Switch").click()
-        expect(page.get_by_text("New experiment")).to_be_visible()
-        expect(page.get_by_role("button", name="✓ Current")).to_be_visible()
 
         session_name = f"E2E Session {uuid.uuid4().hex[:6]}"
         page.get_by_placeholder("Session name").fill(session_name)
         page.get_by_placeholder("Absolute directory path").fill("/tmp/teamchat-e2e")
         page.get_by_role("button", name="Create").click()
         expect(page.get_by_text(session_name)).to_be_visible(timeout=5_000)
+
+        page.locator("div.border.rounded-xl").filter(has_text=session_name).get_by_role(
+            "button", name="Switch"
+        ).click()
+        page.locator("div.fixed").get_by_role("button", name="Close session manager").click()
+        expect(page.get_by_role("button").filter(has_text=session_name)).to_be_visible(timeout=5_000)
 
 
 class TestAgentStatusBar:
