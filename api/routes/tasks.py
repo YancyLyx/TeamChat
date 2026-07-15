@@ -170,7 +170,9 @@ async def get_session_task(request: Request, task_id: int):
         output=row.output,
         exit_code=row.exit_code,
         duration_ms=row.duration_ms,
+        token_usage=row.token_usage,
         started_at=row.started_at,
         finished_at=row.finished_at,
+        tag=row.tag,
         created_at=row.created_at,
     )

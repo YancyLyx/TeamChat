@@ -30,6 +30,7 @@ async def list_sessions(
             output=r.output,
             exit_code=r.exit_code,
             duration_ms=r.duration_ms,
+            token_usage=r.token_usage,
             started_at=r.started_at,
             finished_at=r.finished_at,
             tag=r.tag,

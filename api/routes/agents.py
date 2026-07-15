@@ -29,5 +29,7 @@ async def list_agents(request: Request):
             total_tasks=stats["total_calls"],
             success_rate=stats["success_rate"],
             avg_duration_ms=stats["avg_duration_ms"],
+            token_usage=stats["token_usage"],
+            total_tokens=stats["total_tokens"],
         ))
     return agents
