@@ -344,6 +344,25 @@ class TestTeamChatSessionStore:
         assert "019f40ef-e8cf-76f0-8b49-6691cc7275f3" in default.codex_id
         store.close()
 
+    def test_agent_session_id_get_set(self, tmp_path):
+        from engine.config import Config
+        from engine.session_store import SessionStore
+
+        config = Config(
+            repo_owner="test", repo_name="test", repo_url="https://github.com/test/test",
+            project_root=tmp_path,
+        )
+        store = SessionStore(config)
+        store.init()
+        created = store.create("Cold Start", str(tmp_path / "cold"))
+
+        assert store.get_agent_session_id(created.id, "claude") == ""
+        store.set_agent_session_id(created.id, "claude", "uuid-claude-test")
+        assert store.get_agent_session_id(created.id, "claude") == "uuid-claude-test"
+        store.set_agent_session_id(created.id, "codex", "uuid-codex-test")
+        assert store.get_agent_session_id(created.id, "codex") == "uuid-codex-test"
+        store.close()
+
     def test_create_list_delete(self, tmp_path):
         from engine.config import Config
         from engine.session_store import SessionStore
@@ -368,6 +387,23 @@ class TestTeamChatSessionStore:
         store.delete(2)
         assert store.count() == 1
         store.close()
+
+
+class TestCliSessionExtract:
+    def test_extract_session_id_from_jsonl(self):
+        from engine.runner import extract_cli_session_id
+
+        raw = (
+            '{"type":"thread.started","thread_id":"019f40ef-e8cf-76f0-8b49-6691cc7275f3"}\n'
+            '{"type":"message","content":"hi"}\n'
+        )
+        assert extract_cli_session_id(raw) == "019f40ef-e8cf-76f0-8b49-6691cc7275f3"
+
+    def test_extract_session_id_from_session_init(self):
+        from engine.runner import extract_cli_session_id
+
+        raw = '{"session_id":"5fbaf844-4cbc-48b2-9242-7902d098bd81","type":"system"}\n'
+        assert extract_cli_session_id(raw) == "5fbaf844-4cbc-48b2-9242-7902d098bd81"
 
 
 class TestTokenAndToolStats:

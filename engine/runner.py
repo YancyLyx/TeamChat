@@ -24,6 +24,28 @@ from engine.codex_events import parse_codex_jsonl_output
 
 logger = logging.getLogger(__name__)
 
+
+def extract_cli_session_id(raw_output: str) -> str:
+    """Parse the first CLI session/thread ID from JSONL stdout."""
+    for line in raw_output.splitlines():
+        line = line.strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            evt = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(evt, dict):
+            continue
+        sid = evt.get("session_id") or evt.get("thread_id")
+        if isinstance(sid, str) and len(sid) > 8:
+            return sid
+        if evt.get("type") == "thread.started":
+            tid = evt.get("thread_id") or evt.get("id")
+            if isinstance(tid, str) and len(tid) > 8:
+                return tid
+    return ""
+
 # ---- Data types ----
 
 
@@ -51,6 +73,7 @@ class AgentResult:
     token_usage: dict = field(default_factory=dict)
     started_at: str = ""
     finished_at: str = ""
+    cli_session_id: str = ""
 
     @property
     def success(self) -> bool:
@@ -120,7 +143,8 @@ class AgentRunner:
 
     async def _run(self, agent: AgentIdentity, task: AgentTask,
                    working_dir: Path | None = None,
-                   use_continue: bool = False) -> AgentResult:
+                   use_continue: bool = False,
+                   session_id: str | None = None) -> AgentResult:
         """
         Execute a task on a specific agent CLI.
 
@@ -129,8 +153,13 @@ class AgentRunner:
             task: The prompt + context + timeout
             working_dir: Working directory for the subprocess (default: project root)
             use_continue: If True, use --continue/resume template for session context
+            session_id: Explicit CLI session ID to resume (TeamChat session binding)
         """
-        cmd = self.config.get_cli_command(agent, task.full_prompt(), use_continue=use_continue)
+        cmd = self.config.get_cli_command(
+            agent, task.full_prompt(),
+            use_continue=use_continue,
+            session_id=session_id,
+        )
         cwd = working_dir or self.config.project_root
 
         logger.info(f"🚀 {agent.name} starting | timeout={task.timeout_seconds}s")
@@ -170,7 +199,9 @@ class AgentRunner:
 
         duration_ms = int((time.monotonic() - started_ms) * 1000)
         finished_at = datetime.now(timezone.utc)
-        output = (stdout.decode("utf-8", errors="replace") if stdout else "")
+        raw_output = (stdout.decode("utf-8", errors="replace") if stdout else "")
+        cli_session_id = extract_cli_session_id(raw_output)
+        output = raw_output
         error_output = (stderr.decode("utf-8", errors="replace") if stderr else "")
 
         if error_output:
@@ -218,6 +249,7 @@ class AgentRunner:
             token_usage=token_usage,
             started_at=started_at.isoformat(),
             finished_at=finished_at.isoformat(),
+            cli_session_id=cli_session_id,
         )
 
         # Update stats

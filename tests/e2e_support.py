@@ -209,7 +209,21 @@ class E2EMockRunner(AgentRunner):
         task: AgentTask,
         working_dir: Path | None = None,
     ) -> AgentResult:
-        return await self._mock_execute(agent, task, use_continue=False)
+        return await self._run(agent, task, working_dir, use_continue=False)
+
+    async def _run(
+        self,
+        agent: AgentIdentity,
+        task: AgentTask,
+        working_dir: Path | None = None,
+        use_continue: bool = False,
+        session_id: str | None = None,
+    ) -> AgentResult:
+        resuming = bool(session_id) or use_continue
+        result = await self._mock_execute(agent, task, use_continue=resuming)
+        if not resuming:
+            result.cli_session_id = f"e2e-{agent.cli}-coldstart"
+        return result
 
     async def run_with_context(
         self,
