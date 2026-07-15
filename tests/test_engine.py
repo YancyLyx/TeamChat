@@ -3,6 +3,8 @@ Smoke tests for the TeamChat Engine.
 Run: python -m pytest tests/ -v
 """
 
+import json
+
 import pytest
 
 from engine.config import (
@@ -33,6 +35,11 @@ class TestConfig:
         assert "claude" in CLI_TEMPLATES
         assert "codex" in CLI_TEMPLATES
         assert "cursor" in CLI_TEMPLATES
+
+    def test_codex_templates_use_json_output(self):
+        from engine.config import CLI_CONTINUE_TEMPLATES, CLI_TEMPLATES
+        assert "--json" in CLI_TEMPLATES["codex"]
+        assert "--json" in CLI_CONTINUE_TEMPLATES["codex"]
 
     def test_load_config(self):
         config = load_config()
@@ -161,6 +168,58 @@ class TestRunnerDataTypes:
             duration_ms=100,
         )
         assert result.success is False
+
+
+class TestCodexEventParsing:
+    """Codex JSONL output is cleaned before reaching chat bubbles."""
+
+    def test_parse_codex_jsonl_output_uses_agent_message_only(self):
+        from engine.codex_events import parse_codex_jsonl_output
+
+        output = "\n".join([
+            json.dumps({"type": "thread.started", "thread_id": "abc"}, ensure_ascii=False),
+            json.dumps({
+                "type": "item.completed",
+                "item": {"type": "reasoning", "text": "internal thinking"},
+            }, ensure_ascii=False),
+            json.dumps({
+                "type": "item.completed",
+                "item": {"type": "command_execution", "command": "git status", "exit_code": 0},
+            }, ensure_ascii=False),
+            json.dumps({
+                "type": "item.completed",
+                "item": {"type": "agent_message", "text": "干净回复"},
+            }, ensure_ascii=False),
+            json.dumps({
+                "type": "turn.completed",
+                "usage": {"input_tokens": 3, "output_tokens": 2},
+            }, ensure_ascii=False),
+        ])
+
+        clean_output, usage, saw_json_event = parse_codex_jsonl_output(output)
+
+        assert saw_json_event is True
+        assert clean_output == "干净回复"
+        assert "internal thinking" not in clean_output
+        assert "git status" not in clean_output
+        assert usage == {"input_tokens": 3, "output_tokens": 2}
+
+    def test_parse_codex_jsonl_output_supports_message_content_blocks(self):
+        from engine.codex_events import parse_codex_jsonl_output
+
+        output = json.dumps({
+            "type": "item.completed",
+            "item": {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "content block reply"}],
+            },
+        })
+
+        clean_output, _, saw_json_event = parse_codex_jsonl_output(output)
+
+        assert saw_json_event is True
+        assert clean_output == "content block reply"
 
 
 class TestSessionStore:

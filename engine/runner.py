@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import AsyncIterator
 
 from engine.config import AgentIdentity, Config
+from engine.codex_events import parse_codex_jsonl_output
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +176,7 @@ class AgentRunner:
         if error_output:
             logger.warning(f"⚠️  {agent.name} stderr: {error_output[:200]}")
 
-        # Attempt JSON parsing for structured output (Claude --output-format json)
+        # Attempt JSON parsing for structured CLI output.
         token_usage: dict = {}
         if agent.cli == "claude":
             try:
@@ -202,6 +203,11 @@ class AgentRunner:
                         }
             except (json.JSONDecodeError, TypeError):
                 pass  # Not JSON, keep raw output
+        elif agent.cli == "codex":
+            clean_output, usage, saw_json_event = parse_codex_jsonl_output(output)
+            if saw_json_event:
+                output = clean_output
+                token_usage = usage
 
         result = AgentResult(
             agent_name=agent.name,

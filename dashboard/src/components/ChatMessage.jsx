@@ -14,6 +14,45 @@ function ft(iso) {
   catch { return iso }
 }
 
+function pickText(value) {
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      if (typeof item === 'string') return item
+      if (item && typeof item === 'object') return pickText(item.text || item.content || item.output_text)
+      return ''
+    }).filter(Boolean).join('\n')
+  }
+  if (value && typeof value === 'object') return pickText(value.content || value.text)
+  return ''
+}
+
+function cleanCodexJsonl(text) {
+  if (!text || typeof text !== 'string') return text
+  const lines = text.trim().split('\n').filter(Boolean)
+  if (!lines.length) return text
+  let sawJson = false
+  const messages = []
+  for (const line of lines) {
+    try {
+      const raw = JSON.parse(line)
+      if (!raw || typeof raw !== 'object') continue
+      sawJson = true
+      const item = raw.item && typeof raw.item === 'object' ? raw.item : raw
+      const type = item.type || item.kind || raw.type
+      const role = item.role || item.author || ''
+      const isAgentMessage = type === 'agent_message' || type === 'assistant_message' || (type === 'message' && (!role || role === 'assistant' || role === 'agent'))
+      if (isAgentMessage) {
+        const messageText = pickText(item.text || item.message || item.result || item.output_text || item.content)
+        if (messageText) messages.push(messageText)
+      }
+    } catch {
+      continue
+    }
+  }
+  return sawJson && messages.length ? messages.join('\n').trim() : text
+}
+
 function hlM(text) {
   text = decodeUnicode(text)
   if (!text) return null
@@ -38,6 +77,7 @@ function ps(text) {
 }
 
 function RS({ text, tss }) {
+  text = cleanCodexJsonl(text)
   if (tss && tss.length > 0) {
     return (<div className="space-y-2">
       {tss.map((sec, i) => <details key={i} className="bg-gray-50 border border-gray-200 rounded-lg overflow-hidden"><summary className="flex items-center gap-2 px-3 py-2 text-xs font-mono cursor-pointer hover:bg-gray-100 select-none text-gray-500"><span>{UI_EMOJI.thinking}</span><span className="font-semibold text-gray-600">THINKING</span><span className="ml-auto text-gray-300 text-[10px]">expand/collapse</span></summary><div className="px-3 pb-2 pt-1 text-xs text-gray-500 font-mono leading-relaxed whitespace-pre-wrap border-t border-gray-100">{sec}</div></details>)}
