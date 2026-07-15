@@ -6,6 +6,7 @@ Unaddressed messages go to cici咪 for analysis per spec.
 """
 
 import asyncio
+import json as _json
 import logging
 from datetime import datetime, timezone
 
@@ -14,7 +15,30 @@ from pydantic import BaseModel, Field
 
 from engine.config import ALL_AGENTS, AGENT_CICI, AGENT_COCO, AGENT_SOSO
 from engine.message_parser import parse_message, build_cici_analysis_prompt
-from engine.runner import AgentTask
+from engine.runner import AgentTask, AgentResult
+
+
+async def _spawn_with_session(agent, task, runner, session_store,
+                               teamchat_session_id) -> AgentResult:
+    """Spawn agent: use --resume if CLI session ID known, cold-start + capture if not."""
+    sid = session_store.get_agent_session_id(teamchat_session_id, agent.cli)
+    if sid:
+        return await runner._run(agent, task, use_continue=True)
+    # Cold start — capture session ID from first JSONL line
+    result = await runner._run(agent, task, use_continue=False)
+    for line in result.output.split("\n"):
+        line = line.strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            evt = _json.loads(line)
+            cid = evt.get("session_id") or evt.get("thread_id")
+            if cid and len(cid) > 8:
+                session_store.set_agent_session_id(teamchat_session_id, agent.cli, cid)
+                break
+        except Exception:
+            continue
+    return result
 
 GREETING_KEYWORDS = {"大家好", "hello", "hi", "在吗", "有人在吗", "你好", "你们好", "嗨"}
 
@@ -70,6 +94,7 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
         runner = request.app.state.runner
         store = request.app.state.store
         router = request.app.state.router
+        session_store = request.app.state.session_store
         greeting_msg = f"人类在聊天室发了 '{content}'。请简短回复一句问候/自我介绍（一句话即可），让人知道你在。"
 
         # Broadcast "analyzing" notification
@@ -83,7 +108,8 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
             router.mark_busy(agent)
             task = AgentTask(prompt=greeting_msg, timeout_seconds=60)
             try:
-                result = await runner.run(agent, task)
+                result = await _spawn_with_session(agent, task, runner,
+                    session_store, teamchat_session_id)
             finally:
                 router.mark_free(agent)
             # Log to store
