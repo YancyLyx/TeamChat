@@ -77,7 +77,7 @@ export default function App() {
       }
       if (m.type === 'task_complete') { const d = m.data || {}; setTasks(p => { const si = d.session_id ? `session-${d.session_id}` : null; let mt = false; return p.map(t => { if (mt) return t; if (si && t.id === si) { mt = true; return { ...t, status: d.success ? 'done' : 'failed', exit_code: d.success ? 0 : 1, duration_ms: d.duration_ms, preview: d.output_preview } } if (!si && t.agent === d.agent && t.status === 'running') { mt = true; return { ...t, status: d.success ? 'done' : 'failed', exit_code: d.success ? 0 : 1, duration_ms: d.duration_ms, preview: d.output_preview } } return t }) }); setAgents(p => p.map(a => a.name === d.agent ? { ...a, is_busy: false } : a)); fetchData() }
     }
-  }, [wsMessages])
+  }, [wsMessages, fetchData])
 
   return (
     <div className="h-screen flex flex-col bg-gray-50 text-gray-800 overflow-hidden">
@@ -115,7 +115,7 @@ export default function App() {
                 <button onClick={() => setRightTab('tasks')} className={`flex-1 text-xs py-2 font-medium transition-colors ${rightTab === 'tasks' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'}`}>Tasks</button>
                 <button onClick={() => setRightTab('stats')} className={`flex-1 text-xs py-2 font-medium transition-colors ${rightTab === 'stats' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'}`}>Stats</button>
               </div>
-              {rightTab === 'tasks' ? <CompactTaskBoard tasks={tasks} /> : <StatsPanel agentMetrics={agentMetrics} sessionsByAgent={agSessions} />}
+              {rightTab === 'tasks' ? <CompactTaskBoard tasks={tasks} /> : <StatsPanel agentMetrics={agentMetrics} />}
             </>
           )}
         </aside>
