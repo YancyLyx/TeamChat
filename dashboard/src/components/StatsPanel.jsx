@@ -49,6 +49,9 @@ export default function StatsPanel() {
   const names = ['cici咪', 'coco咪', 'soso咪']
   const totals = names.map((n) => agentStats[n]?.total_calls || 0)
   const totalDone = totals.reduce((a, b) => a + b, 0)
+  const avgSuccess = names.length
+    ? names.reduce((sum, n) => sum + (agentStats[n]?.success_rate || 0), 0) / names.length
+    : 0
 
   return (
     <div className="p-3 space-y-4 bg-white">
@@ -91,7 +94,7 @@ export default function StatsPanel() {
           </div>
           <div className="bg-gray-50 rounded-lg p-2.5">
             <span className="text-gray-400 text-[10px]">Success Rate</span>
-            <p className="text-sm font-bold text-green-600 mt-0.5">{names.length > 0 ? (agentStats[names[0]]?.success_rate * 100 || 0).toFixed(0) : 0}%</p>
+            <p className="text-sm font-bold text-green-600 mt-0.5">{(avgSuccess * 100).toFixed(0)}%</p>
           </div>
           <div className="bg-gray-50 rounded-lg p-2.5">
             <span className="text-gray-400 text-[10px]">Avg Cycle</span>
