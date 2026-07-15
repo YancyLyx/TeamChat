@@ -2,6 +2,15 @@
 
 此文件被 Claude Code (`CLAUDE.md`)、Codex CLI、Cursor 及其他兼容工具读取。它定义了团队中三个 AI agent 如何协作。
 
+## ⚠️ 每次任务前必读
+
+1. **`docs/START-HERE.md`** — 导航 + 铁律
+2. **`docs/agents/{你的名字}.md`** — 你的角色卡
+3. **`PROGRESS.md`** — 当前进度
+4. **[相关 ADR]** — 如果任务涉及具体技术方案
+
+**不读文档就写代码 = 白做。**
+
 ## 团队成员
 
 | 名字 | CLI | 角色 | Git 身份 |
