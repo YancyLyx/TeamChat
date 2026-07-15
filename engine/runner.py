@@ -70,7 +70,8 @@ def parse_cursor_jsonl_output(raw_output: str) -> str:
                         text_parts.append(text)
         elif etype == "result":
             result = raw.get("result")
-            if isinstance(result, str) and result:
+            # Skip if already captured from assistant event (same text)
+            if isinstance(result, str) and result and result not in text_parts:
                 text_parts.append(result)
     cleaned = "\n".join(text_parts).strip()
     return cleaned
