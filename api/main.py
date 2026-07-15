@@ -192,7 +192,7 @@ async def stats(request: Request, teamchat_session_id: int = 1):
         base = by_agent.get(agent.name, {})
         token_data = store.token_stats(agent_name=agent.name, teamchat_session_id=teamchat_session_id)
         tool_data = store.tool_stats(agent_name=agent.name, teamchat_session_id=teamchat_session_id)
-        token_grand_total += token_data.get("output_tokens", 0)
+        token_grand_total += token_data.get("total_tokens", 0)
         enriched[agent.name] = {
             **base,
             "input_tokens": token_data.get("input_tokens", 0),
