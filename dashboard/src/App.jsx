@@ -6,7 +6,6 @@ import SessionManager from './components/SessionManager.jsx'
 import StatsPanel from './components/StatsPanel.jsx'
 import LivePanel from './components/LivePanel.jsx'
 import { UI_EMOJI } from './constants/agents.js'
-import { normalizeAgentMetrics } from './utils/metrics.js'
 
 const API_BASE = '/api'
 let tc = 0
@@ -15,7 +14,6 @@ export default function App() {
   const [agents, setAgents] = useState([])
   const [tasks, setTasks] = useState([])
   const [agSessions, setAgSessions] = useState({})
-  const [agentMetrics, setAgentMetrics] = useState({})
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
   const [rightTab, setRightTab] = useState('stats')
@@ -32,16 +30,14 @@ export default function App() {
       setLoading(true); setError(null)
       const [ar, sr, str, tr] = await Promise.all([
         fetch(`${API_BASE}/agents`),
-        fetch(`${API_BASE}/sessions?limit=30&tag=prod`),
+        fetch(`${API_BASE}/sessions?limit=30`),
         fetch(`${API_BASE}/stats`),
         fetch(`${API_BASE}/tasks/table`),
       ])
       if (!ar.ok || !sr.ok || !str.ok) throw new Error('API failed')
       const ad = await ar.json(), sd = await sr.json(), st = await str.json()
       const tableRows = tr.ok ? await tr.json() : []
-      const metrics = normalizeAgentMetrics(st, sd)
-      setAgentMetrics(metrics)
-      setAgents(ad.map((a) => ({ ...a, ...(metrics[a.name] || {}) })))
+      setAgents(ad.map((a) => ({ ...a, total_tasks: st?.agents?.[a.name]?.total_calls ?? a.total_tasks ?? 0, success_rate: st?.agents?.[a.name]?.success_rate ?? a.success_rate ?? 0, avg_duration_ms: st?.agents?.[a.name]?.avg_duration_ms ?? a.avg_duration_ms ?? 0 })))
       const ba = {}; for (const s of sd) { if (!ba[s.agent_name]) ba[s.agent_name] = []; ba[s.agent_name].push(s) }; setAgSessions(ba)
       const sessionTasks = sd.map((s) => ({ id: `session-${s.id}`, title: s.prompt.slice(0, 80), agent: s.agent_name, status: s.exit_code === 0 ? 'done' : 'failed', exit_code: s.exit_code, duration_ms: s.duration_ms, time: new Date(s.started_at).toLocaleTimeString(), preview: s.output.slice(0, 100) }))
       const tableTasks = tableRows.map((t) => ({
@@ -76,26 +72,13 @@ export default function App() {
           })
         }
       }
-      if (m.type === 'task_complete') {
-        const d = m.data || {}
-        setTasks(p => {
-          const si = d.session_id ? `session-${d.session_id}` : null
-          let mt = false
-          return p.map(t => {
-            if (mt) return t
-            if (si && t.id === si) { mt = true; return { ...t, status: d.success ? 'done' : 'failed', exit_code: d.success ? 0 : 1, duration_ms: d.duration_ms, preview: d.output_preview } }
-            if (!si && t.agent === d.agent && t.status === 'running') { mt = true; return { ...t, status: d.success ? 'done' : 'failed', exit_code: d.success ? 0 : 1, duration_ms: d.duration_ms, preview: d.output_preview } }
-            return t
-          })
-        })
-        setAgents(p => p.map(a => a.name === d.agent ? { ...a, is_busy: false } : a))
-        fetchData()
-      }
-      if (m.type !== 'pong' && m.type !== 'connected') {
-        setLiveEvents((prev) => [...prev.slice(-19), m])
-      }
+      if (m.type === 'task_complete') { const d = m.data || {}; setTasks(p => { const si = d.session_id ? `session-${d.session_id}` : null; let mt = false; return p.map(t => { if (mt) return t; if (si && t.id === si) { mt = true; return { ...t, status: d.success ? 'done' : 'failed', exit_code: d.success ? 0 : 1, duration_ms: d.duration_ms, preview: d.output_preview } } if (!si && t.agent === d.agent && t.status === 'running') { mt = true; return { ...t, status: d.success ? 'done' : 'failed', exit_code: d.success ? 0 : 1, duration_ms: d.duration_ms, preview: d.output_preview } } return t }) }); setAgents(p => p.map(a => a.name === d.agent ? { ...a, is_busy: false } : a)) }
+    // Track live events for the Live Panel
+    if (m.type !== 'pong' && m.type !== 'connected') {
+      setLiveEvents((prev) => [...prev.slice(-19), m])
     }
-  }, [wsMessages, fetchData])
+    }
+  }, [wsMessages])
 
   return (
     <div className="h-screen flex flex-col bg-gray-50 text-gray-800 overflow-hidden">
@@ -127,13 +110,13 @@ export default function App() {
           <ChatRoom wsMessages={wsMessages} connectionStatus={connectionStatus} />
         </main>
         <aside className={`flex-shrink-0 border-l border-gray-200 bg-white overflow-y-auto transition-all duration-200 ${rightOpen ? 'w-72' : 'w-0 overflow-hidden'}`}>
-          {rightOpen && (
+        {rightOpen && (
             <>
               <div className="flex border-b border-gray-100">
                 <button onClick={() => setRightTab('stats')} className={`flex-1 text-xs py-2 font-medium transition-colors ${rightTab === 'stats' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'}`}>Stats</button>
                 <button onClick={() => setRightTab('live')} className={`flex-1 text-xs py-2 font-medium transition-colors ${rightTab === 'live' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'}`}>Live</button>
               </div>
-              {rightTab === 'stats' ? <StatsPanel agentMetrics={agentMetrics} /> : <LivePanel recentEvents={liveEvents} />}
+              {rightTab === 'stats' ? <StatsPanel /> : <LivePanel recentEvents={liveEvents} />}
             </>
           )}
         </aside>
