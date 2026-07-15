@@ -68,6 +68,9 @@ class SessionStore:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(SCHEMA)
         self._conn.commit()
+        # Seed default session if database is empty
+        if self.count() == 0:
+            self.create("TeamChat 开发", str(self.config.project_root))
 
     def close(self):
         if self._conn:
