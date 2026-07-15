@@ -18,7 +18,7 @@ export default function App() {
   const [rightOpen, setRightOpen] = useState(true)
   const [rightTab, setRightTab] = useState('stats')
   const [showSM, setShowSM] = useState(false)
-  const [sessionLabel, setSessionLabel] = useState('TeamChat develop')
+  const [sessionLabel, setSessionLabel] = useState('TeamChat 开发')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const { messages: wsMessages, connectionStatus } = useWebSocket()

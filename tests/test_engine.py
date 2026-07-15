@@ -260,7 +260,25 @@ class TestSessionStore:
 
 
 class TestTeamChatSessionStore:
-    """Project-level session persistence (PR #40)."""
+    """Project-level session persistence (PR #40) + default seed (#47)."""
+
+    def test_default_session_seed(self, tmp_path):
+        from engine.config import Config
+        from engine.session_store import DEFAULT_SESSION_NAME, SessionStore
+
+        config = Config(
+            repo_owner="test", repo_name="test", repo_url="https://github.com/test/test",
+            project_root=tmp_path,
+        )
+        store = SessionStore(config)
+        store.init()
+
+        assert store.count() == 1
+        default = store.get(1)
+        assert default is not None
+        assert default.name == DEFAULT_SESSION_NAME
+        assert default.directory == str(tmp_path)
+        store.close()
 
     def test_create_list_delete(self, tmp_path):
         from engine.config import Config
@@ -274,17 +292,17 @@ class TestTeamChatSessionStore:
         store.init()
 
         created = store.create("Dev Session", str(tmp_path))
-        assert created.id == 1
+        assert created.id == 2
         assert created.name == "Dev Session"
 
         listed = store.list_all()
-        assert len(listed) == 1
+        assert len(listed) == 2
 
-        store.update(1, name="Renamed")
-        assert store.get(1).name == "Renamed"
+        store.update(2, name="Renamed")
+        assert store.get(2).name == "Renamed"
 
-        store.delete(1)
-        assert store.count() == 0
+        store.delete(2)
+        assert store.count() == 1
         store.close()
 
 

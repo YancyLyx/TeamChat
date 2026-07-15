@@ -181,7 +181,7 @@ class TestSessionManager:
         _goto(page, e2e_servers["dashboard_url"])
         _wait_connected(page)
 
-        page.get_by_role("button").filter(has_text="TeamChat develop").click()
+        page.get_by_role("button").filter(has_text="TeamChat").first.click()
         expect(page.get_by_role("heading", name="Session Manager")).to_be_visible()
 
         session_name = f"E2E Session {uuid.uuid4().hex[:6]}"
