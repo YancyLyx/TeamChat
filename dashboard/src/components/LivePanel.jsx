@@ -82,7 +82,7 @@ export default function LivePanel({ recentEvents = [] }) {
             ) : (
               <div className="space-y-1 max-h-48 overflow-y-auto">
                 {recentEvents.slice(-10).map((evt, i) => {
-                  const icon = evt.type === 'task_started' ? '🚀' : evt.type === 'task_complete' ? (evt.success ? '✅' : '❌') : evt.type === 'chat_message' ? '💬' : evt.type === 'system_message' ? 'ℹ️' : '➜'
+                  const icon = evt.type === 'task_started' ? '🚀' : evt.type === 'task_complete' ? (evt.data?.success ? '✅' : '❌') : evt.type === 'chat_message' ? '💬' : evt.type === 'system_message' ? 'ℹ️' : '➜'
                   const label = evt.data?.agent || evt.data?.from || evt.type
                   const desc = evt.data?.prompt || evt.data?.content || (evt.data?.output_preview || '').slice(0, 50) || evt.type
                   return (
