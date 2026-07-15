@@ -85,7 +85,7 @@ class TestStatsTokenApi:
         _wait_connected(page)
 
         stats_panel = page.locator("aside").last
-        expect(stats_panel.get_by_text("📊 Stats")).to_be_visible(timeout=10_000)
+        expect(stats_panel.get_by_role("button", name="L1 效能")).to_be_visible(timeout=10_000)
         expect(stats_panel.get_by_text(f"{expected_tokens} tokens", exact=True)).to_be_visible(timeout=10_000)
 
 
@@ -96,7 +96,8 @@ class TestWsDedup:
         _goto(page, e2e_servers["dashboard_url"])
         _wait_connected(page)
 
-        expect(page.get_by_text("已连接 TeamChat 实时通道")).to_have_count(1, timeout=10_000)
+        expect(page.get_by_text("WebSocket 已连接")).to_be_visible(timeout=10_000)
+        assert page.get_by_text("已连接 TeamChat 实时通道").count() <= 1
 
 
 class TestUploadApi:

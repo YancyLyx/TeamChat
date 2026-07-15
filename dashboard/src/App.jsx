@@ -105,7 +105,7 @@ export default function App() {
     if (wsMessages.length <= lastMcRef.current) return
     const nm = wsMessages.slice(lastMcRef.current); lastMcRef.current = wsMessages.length
     for (const m of nm) {
-      if (m.type === 'task_started') { const d = m.data || {}; tc += 1; setTasks(p => [{ id: `t-${tc}`, title: (d.prompt || '').slice(0, 80), agent: d.agent, status: 'running', time: new Date().toLocaleTimeString() }, ...p]); setAgents(p => p.map(a => a.name === d.agent ? { ...a, is_busy: true } : a)) }
+      if (m.type === 'task_started') { const d = m.data || {}; tc += 1; setTasks(p => [{ id: `t-${tc}`, title: (d.prompt || '').slice(0, 80), agent: d.agent, status: 'running', time: new Date().toLocaleTimeString() }, ...p]); setAgents(p => p.map(a => a.name === d.agent ? { ...a, is_busy: true, busy_since: Date.now() } : a)) }
       if (m.type === 'task_table_updated') {
         const d = m.data || {}
         const tid = d.id ? `table-${d.id}` : null
@@ -118,7 +118,7 @@ export default function App() {
           })
         }
       }
-      if (m.type === 'task_complete') { const d = m.data || {}; setTasks(p => { const si = d.session_id ? `session-${d.session_id}` : null; let mt = false; return p.map(t => { if (mt) return t; if (si && t.id === si) { mt = true; return { ...t, status: d.success ? 'done' : 'failed', exit_code: d.success ? 0 : 1, duration_ms: d.duration_ms, preview: d.output_preview } } if (!si && t.agent === d.agent && t.status === 'running') { mt = true; return { ...t, status: d.success ? 'done' : 'failed', exit_code: d.success ? 0 : 1, duration_ms: d.duration_ms, preview: d.output_preview } } return t }) }); setAgents(p => p.map(a => a.name === d.agent ? { ...a, is_busy: false } : a)) }
+      if (m.type === 'task_complete') { const d = m.data || {}; setTasks(p => { const si = d.session_id ? `session-${d.session_id}` : null; let mt = false; return p.map(t => { if (mt) return t; if (si && t.id === si) { mt = true; return { ...t, status: d.success ? 'done' : 'failed', exit_code: d.success ? 0 : 1, duration_ms: d.duration_ms, preview: d.output_preview } } if (!si && t.agent === d.agent && t.status === 'running') { mt = true; return { ...t, status: d.success ? 'done' : 'failed', exit_code: d.success ? 0 : 1, duration_ms: d.duration_ms, preview: d.output_preview } } return t }) }); setAgents(p => p.map(a => a.name === d.agent ? { ...a, is_busy: false, busy_since: null } : a)) }
    // Track live events for the Live Panel
    if (m.type !== 'pong' && m.type !== 'connected') {
       const eventKey = `${m.type}|${m.data?.agent || m.data?.from || ''}|${m.data?.content || m.data?.prompt || m.data?.output_preview || ''}`.slice(0, 200)

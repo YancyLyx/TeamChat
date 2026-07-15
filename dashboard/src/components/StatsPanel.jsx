@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react'
 import { AGENT_EMOJI, AGENT_NAMES } from '../constants/agents.js'
-import { formatTokens, weeklySummary } from '../utils/metrics.js'
+import { formatTokens, weeklySummary, liberationMetrics } from '../utils/metrics.js'
 
 const API_BASE = '/api'
 
@@ -20,8 +20,25 @@ export default function StatsPanel({ agentMetrics = {} }) {
   const [subTab, setSubTab] = useState('L1')
   const [engine, setEngine] = useState(null)
   const [taskStats, setTaskStats] = useState(null)
+  const [humanMessages, setHumanMessages] = useState(0)
   const [loadingL2, setLoadingL2] = useState(true)
   const summary = weeklySummary(agentMetrics)
+  const liberation = liberationMetrics({ agentMetrics, summary, taskStats, humanMessages })
+
+  useEffect(() => {
+    if (subTab !== 'L3') return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/sessions?limit=200`)
+        if (!cancelled && res.ok) {
+          const rows = await res.json()
+          setHumanMessages(rows.filter((s) => s.agent_name === 'human').length)
+        }
+      } catch { /* ignore */ }
+    })()
+    return () => { cancelled = true }
+  }, [subTab])
 
   useEffect(() => {
     if (subTab !== 'L2') return
@@ -108,10 +125,11 @@ export default function StatsPanel({ agentMetrics = {} }) {
                 <p className="text-[10px] text-gray-400 font-semibold uppercase">Task Stats</p>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="bg-white rounded-lg p-2"><span className="text-gray-400 text-[10px]">Total</span><p className="text-sm font-bold text-gray-700">{taskStats?.total || 0}</p></div>
-                  <div className="bg-white rounded-lg p-2"><span className="text-gray-400 text-[10px]">Done</span><p className="text-sm font-bold text-green-600">{taskStats?.by_status?.done || 0}</p></div>
-                  <div className="bg-white rounded-lg p-2"><span className="text-gray-400 text-[10px]">Pending</span><p className="text-sm font-bold text-yellow-600">{taskStats?.by_status?.pending || 0}</p></div>
-                  <div className="bg-white rounded-lg p-2"><span className="text-gray-400 text-[10px]">Running</span><p className="text-sm font-bold text-blue-600">{taskStats?.by_status?.running || 0}</p></div>
+                  <div className="bg-white rounded-lg p-2"><span className="text-gray-400 text-[10px]">Done</span><p className="text-sm font-bold text-green-600">{taskStats?.done || 0}</p></div>
+                  <div className="bg-white rounded-lg p-2"><span className="text-gray-400 text-[10px]">Pending</span><p className="text-sm font-bold text-yellow-600">{taskStats?.pending || 0}</p></div>
+                  <div className="bg-white rounded-lg p-2"><span className="text-gray-400 text-[10px]">Running</span><p className="text-sm font-bold text-blue-600">{taskStats?.running || 0}</p></div>
                 </div>
+                <p className="text-[10px] text-gray-400 font-mono">completion: {((taskStats?.completion_rate || 0) * 100).toFixed(0)}%</p>
               </div>
             </>
           )}
@@ -124,9 +142,9 @@ export default function StatsPanel({ agentMetrics = {} }) {
           <div className="bg-gray-50 rounded-lg p-2.5 space-y-1.5">
             <p className="text-[10px] text-gray-400 font-semibold uppercase">Human Liberation</p>
             <div className="bg-white rounded-lg p-2.5 space-y-2 text-xs">
-              <div><span className="text-gray-400">Automation Rate</span><div className="flex items-center gap-2 mt-0.5"><Bar pct={87} /><span className="text-xs font-bold text-gray-700 font-mono">87%</span></div></div>
-              <div><span className="text-gray-400">Manual Interventions</span><p className="text-sm font-bold text-gray-700 mt-0.5">3</p></div>
-              <div><span className="text-gray-400">Message to Completion</span><p className="text-sm font-bold text-gray-700 mt-0.5">15 min</p></div>
+              <div><span className="text-gray-400">Automation Rate</span><div className="flex items-center gap-2 mt-0.5"><Bar pct={liberation.automation_rate} /><span className="text-xs font-bold text-gray-700 font-mono">{liberation.automation_rate.toFixed(0)}%</span></div></div>
+              <div><span className="text-gray-400">Manual Interventions</span><p className="text-sm font-bold text-gray-700 mt-0.5">{liberation.manual_interventions}</p></div>
+              <div><span className="text-gray-400">Message to Completion</span><p className="text-sm font-bold text-gray-700 mt-0.5">{liberation.message_to_completion}</p></div>
             </div>
           </div>
         </div>

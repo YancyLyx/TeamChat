@@ -34,8 +34,9 @@ class TestLivePanel:
         expect(right_aside.get_by_text("🔴 Live")).to_be_visible(timeout=10_000)
         expect(right_aside.get_by_text("Engine Mode")).to_be_visible()
         expect(right_aside.get_by_text("Parallel")).to_be_visible()
+        left_aside = page.locator("aside").first
         for agent in ("cici咪", "coco咪", "soso咪"):
-            expect(right_aside.get_by_text(agent, exact=True)).to_be_visible()
+            expect(left_aside.get_by_role("heading", name=agent)).to_be_visible()
 
     def test_engine_api_returns_observability_fields(self, e2e_servers):
         api_url = e2e_servers["api_url"]

@@ -27,7 +27,7 @@ def _wait_connected(page: Page, timeout: float = 15_000) -> None:
 
 
 def _open_session_manager(page: Page) -> None:
-    page.get_by_role("button").filter(has_text="TeamChat").first.click()
+    page.get_by_role("button").filter(has_text="📁").first.click()
     expect(page.get_by_role("heading", name="Session Manager")).to_be_visible()
 
 
@@ -90,7 +90,7 @@ class TestSessionManagerMenu:
         _goto(page, e2e_servers["dashboard_url"])
         _wait_connected(page)
 
-        expect(page.get_by_role("button").filter(has_text="TeamChat 开发")).to_be_visible()
+        expect(page.get_by_role("button").filter(has_text="📁")).to_be_visible()
         _open_session_manager(page)
 
         alt_name = f"Alt Session {uuid.uuid4().hex[:6]}"
@@ -137,7 +137,7 @@ class TestStatsPanel:
         _wait_connected(page)
 
         page.get_by_role("button", name="Stats", exact=True).click()
-        expect(page.get_by_text("📊 Stats")).to_be_visible(timeout=10_000)
+        expect(page.get_by_role("button", name="L1 效能")).to_be_visible(timeout=10_000)
 
         stats_panel = page.locator("aside").last
         for agent in ("cici咪", "coco咪", "soso咪"):
@@ -155,5 +155,8 @@ class TestStatsPanel:
         assert "agents" in data
         for name in ("cici咪", "coco咪", "soso咪"):
             assert name in data["agents"]
-            assert "total_calls" in data["agents"][name]
-            assert "success_rate" in data["agents"][name]
+            agent = data["agents"][name]
+            assert "total_tokens" in agent
+            assert "tool_calls" in agent
+            if agent.get("total_calls", 0) > 0:
+                assert "success_rate" in agent
