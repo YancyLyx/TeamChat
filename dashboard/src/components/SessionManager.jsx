@@ -1,13 +1,29 @@
 import { useState } from 'react'
+import { AGENT_NAMES, AGENT_EMOJI, UI_EMOJI } from '../constants/agents.js'
+
+const emptyAgents = () => Object.fromEntries(AGENT_NAMES.map((n) => [n, 'pending']))
 
 const MOCK_SESSIONS = [
-  { id: 'sess-001', name: 'TeamChat develop', directory: '/Users/yanxinluo/Documents/PycharmProjects/TeamChat', agents: { 'cici\u54aa': 'ready', 'coco\u54aa': 'ready', 'soso\u54aa': 'ready' }, created: '2026-07-09', active: true },
-  { id: 'sess-002', name: 'New experiment', directory: '/Users/yanxinluo/Documents/experiment', agents: { 'cici\u54aa': 'pending', 'coco\u54aa': 'pending', 'soso\u54aa': 'pending' }, created: '2026-07-10', active: false },
+  {
+    id: 'sess-001',
+    name: 'TeamChat develop',
+    directory: '/Users/yanxinluo/Documents/PycharmProjects/TeamChat',
+    agents: { 'cici咪': 'ready', 'coco咪': 'ready', 'soso咪': 'ready' },
+    created: '2026-07-09',
+    active: true,
+  },
+  {
+    id: 'sess-002',
+    name: 'New experiment',
+    directory: '/Users/yanxinluo/Documents/experiment',
+    agents: emptyAgents(),
+    created: '2026-07-10',
+    active: false,
+  },
 ]
 
-const AE = { 'cici\u54aa': '\U0001f3d7\ufe0f', 'coco\u54aa': '\u26a1', 'soso\u54aa': '\U0001f50d' }
-const SI = { ready: '\u2705', pending: '\u23f3', failed: '\u274c' }
-const SD = { ready: 'ready', pending: 'pending', failed: 'failed' }
+const SESSION_STATUS_ICON = { ready: UI_EMOJI.check, pending: UI_EMOJI.hourglass, failed: UI_EMOJI.cross }
+const SESSION_STATUS_CLASS = { ready: 'ready', pending: 'pending', failed: 'failed' }
 
 export default function SessionManager({ open, onClose }) {
   const [sessions, setSessions] = useState(MOCK_SESSIONS)
@@ -25,7 +41,7 @@ export default function SessionManager({ open, onClose }) {
         id,
         name: newName.trim(),
         directory: newDir.trim(),
-        agents: { 'cici\u54aa': 'pending', 'coco\u54aa': 'pending', 'soso\u54aa': 'pending' },
+        agents: emptyAgents(),
         created: new Date().toISOString().slice(0, 10),
         active: false,
       },
@@ -55,12 +71,17 @@ export default function SessionManager({ open, onClose }) {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => setActiveId(s.id)} className={`text-xs px-3 py-1 rounded-lg font-medium transition-colors ${isActive ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{isActive ? '\u2713 Current' : 'Switch'}</button>
-                    <button className="text-gray-400 hover:text-gray-600 text-sm px-1">\u00b7\u00b7\u00b7</button>
+                    <button onClick={() => setActiveId(s.id)} className={`text-xs px-3 py-1 rounded-lg font-medium transition-colors ${isActive ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{isActive ? '✓ Current' : 'Switch'}</button>
+                    <button className="text-gray-400 hover:text-gray-600 text-sm px-1">···</button>
                   </div>
                 </div>
                 <div className="mt-3 flex items-center gap-3 text-xs">
-                  {['cici\u54aa', 'coco\u54aa', 'soso\u54aa'].map((n) => <div key={n} className="flex items-center gap-1"><span>{AE[n]}</span><span className={`session-dot ${SD[s.agents[n]]}`} /></div>)}
+                  {AGENT_NAMES.map((n) => (
+                    <div key={n} className="flex items-center gap-1">
+                      <span>{AGENT_EMOJI[n]}</span>
+                      <span title={SESSION_STATUS_ICON[s.agents[n]]} className={`session-dot ${SESSION_STATUS_CLASS[s.agents[n]]}`} />
+                    </div>
+                  ))}
                   <span className="text-gray-300">|</span>
                   <span className="text-gray-400">{s.created}</span>
                 </div>

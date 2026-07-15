@@ -1,10 +1,11 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
+import { AGENT_NAMES, AGENT_INFO, UI_EMOJI, CHAT_PLACEHOLDER } from '../constants/agents.js'
 
-const AGENTS = [
-  { name: 'cici\u54aa', emoji: '\U0001f3d7\ufe0f', desc: '\u67b6\u6784\u5e08' },
-  { name: 'coco\u54aa', emoji: '\u26a1', desc: '\u5168\u6808\u5f00\u53d1' },
-  { name: 'soso\u54aa', emoji: '\U0001f50d', desc: 'QA' },
-]
+const AGENTS = AGENT_NAMES.map((name) => ({
+  name,
+  emoji: AGENT_INFO[name].emoji,
+  desc: AGENT_INFO[name].desc,
+}))
 
 export default function ChatInput({ onSend, disabled }) {
   const [text, setText] = useState('')
@@ -74,15 +75,13 @@ export default function ChatInput({ onSend, disabled }) {
   const handleAttach = useCallback(() => fileRef.current?.click(), [])
   const handleFiles = useCallback((e) => { setFiles(p => [...p, ...Array.from(e.target.files || [])].slice(0, 5)); e.target.value = '' }, [])
 
-  const inputPlaceholder = '\u53d1\u9001\u6d88\u606f\u5230 TeamChat... (@cici\u54aa @coco\u54aa @soso\u54aa)'
-
   return (
     <div className="relative border-t border-gray-200 bg-white px-4 pt-3 pb-3">
       {files.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-2">
           {files.map((f, i) => (
             <span key={i} className="inline-flex items-center gap-1 bg-gray-100 border border-gray-200 rounded-lg px-2 py-1 text-xs text-gray-600">
-              \U0001f4ce {f.name}
+              {UI_EMOJI.paperclip} {f.name}
               <button onClick={() => setFiles(p => p.filter((_, j) => j !== i))} className="text-gray-400 hover:text-gray-600 ml-0.5">&times;</button>
             </span>
           ))}
@@ -102,23 +101,23 @@ export default function ChatInput({ onSend, disabled }) {
           )}
           <textarea ref={taRef} value={text} onChange={handleChange} onKeyDown={handleKeyDown}
             onCompositionStart={onCompStart} onCompositionEnd={onCompEnd}
-            placeholder={inputPlaceholder} rows={1} disabled={disabled || sending}
+            placeholder={CHAT_PLACEHOLDER} rows={1} disabled={disabled || sending}
             className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-700 placeholder-gray-400 resize-none outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200 transition-colors disabled:bg-gray-100 disabled:text-gray-400"
             style={{ minHeight: '42px', maxHeight: '120px' }}
             onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px' }} />
         </div>
         <button onClick={handleAttach} disabled={disabled}
-          className="flex-shrink-0 bg-gray-100 hover:bg-gray-200 disabled:bg-gray-50 disabled:text-gray-300 text-gray-500 rounded-xl px-3 py-2.5 text-sm transition-colors" title="Attach">\U0001f4ce</button>
+          className="flex-shrink-0 bg-gray-100 hover:bg-gray-200 disabled:bg-gray-50 disabled:text-gray-300 text-gray-500 rounded-xl px-3 py-2.5 text-sm transition-colors" title="Attach">{UI_EMOJI.paperclip}</button>
         <input ref={fileRef} type="file" multiple className="hidden" onChange={handleFiles} />
         <button onClick={doSend} disabled={!text.trim() || sending || disabled}
           className="flex-shrink-0 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-xl px-5 py-2.5 text-sm font-medium transition-colors flex items-center gap-1.5">
-          {sending ? <><span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white/80 rounded-full animate-spin" /> Sending</> : <>\U0001f4ac Send</>}
+          {sending ? <><span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white/80 rounded-full animate-spin" /> Sending</> : <>{UI_EMOJI.speech} Send</>}
         </button>
       </div>
       <div className="mt-1.5 text-[10px] text-gray-400 flex items-center gap-3">
-        <span>Enter send \u00b7 Shift+Enter newline</span>
+        <span>Enter send · Shift+Enter newline</span>
         <span>@ mention</span>
-        <span>\U0001f4ce attach</span>
+        <span>{UI_EMOJI.paperclip} attach</span>
       </div>
     </div>
   )

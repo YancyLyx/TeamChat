@@ -4,6 +4,7 @@ import AgentCard from './components/AgentCard.jsx'
 import ChatRoom from './components/ChatRoom.jsx'
 import CompactTaskBoard from './components/CompactTaskBoard.jsx'
 import SessionManager from './components/SessionManager.jsx'
+import { UI_EMOJI } from './constants/agents.js'
 
 const API_BASE = '/api'
 let tc = 0
@@ -76,14 +77,14 @@ export default function App() {
       {/* Header */}
       <header className="flex-shrink-0 border-b border-gray-200 bg-white px-4 py-2.5 flex items-center justify-between z-10">
         <div className="flex items-center gap-3">
-          <span className="text-lg">\U0001f916</span>
+          <span className="text-lg">{UI_EMOJI.robot}</span>
           <h1 className="text-base font-bold text-gray-800 tracking-tight">TeamChat</h1>
-          <button onClick={() => setShowSM(true)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg px-2.5 py-1.5 transition-colors ml-2">\U0001f4c1 TeamChat develop \u25be</button>
+          <button onClick={() => setShowSM(true)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg px-2.5 py-1.5 transition-colors ml-2">{UI_EMOJI.folder} TeamChat develop ▾</button>
           <span className="text-[10px] text-gray-400 font-mono hidden sm:inline">v0.1</span>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => setLeftOpen(!leftOpen)} className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded hover:bg-gray-100">{leftOpen ? '\u25c0' : '\u25b6'}</button>
-          <button onClick={() => setRightOpen(!rightOpen)} className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded hover:bg-gray-100">{rightOpen ? '\u25b6' : '\u25c0'}</button>
+          <button onClick={() => setLeftOpen(!leftOpen)} className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded hover:bg-gray-100">{leftOpen ? '◀' : '▶'}</button>
+          <button onClick={() => setRightOpen(!rightOpen)} className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded hover:bg-gray-100">{rightOpen ? '▶' : '◀'}</button>
           <div className="flex items-center gap-1.5 text-xs ml-2">
             <span className={`inline-block w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-green-500' : connectionStatus === 'connecting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'}`} />
             <span className={`font-mono ${connectionStatus === 'connected' ? 'text-green-600' : connectionStatus === 'connecting' ? 'text-yellow-600' : 'text-red-600'}`}>{connectionStatus === 'connected' ? 'Connected' : connectionStatus === 'connecting' ? 'Connecting...' : 'Offline'}</span>
@@ -91,7 +92,7 @@ export default function App() {
         </div>
       </header>
 
-      {error && <div className="flex-shrink-0 bg-red-50 border-b border-red-200 px-4 py-2 text-xs text-red-700 flex items-center gap-2"><span>\u26a0\ufe0f</span><span>{error}</span><button onClick={fetchData} className="ml-auto underline hover:text-red-800">Retry</button></div>}
+      {error && <div className="flex-shrink-0 bg-red-50 border-b border-red-200 px-4 py-2 text-xs text-red-700 flex items-center gap-2"><span>{UI_EMOJI.warning}</span><span>{error}</span><button onClick={fetchData} className="ml-auto underline hover:text-red-800">Retry</button></div>}
 
       <div className="flex-1 flex overflow-hidden">
         <aside className={`flex-shrink-0 border-r border-gray-200 bg-white overflow-y-auto transition-all duration-200 ${leftOpen ? 'w-56' : 'w-0 overflow-hidden'}`}>

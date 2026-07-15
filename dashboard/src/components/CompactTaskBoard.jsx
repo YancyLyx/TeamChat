@@ -1,12 +1,18 @@
 import { useState } from 'react'
+import { UI_EMOJI } from '../constants/agents.js'
 
 const COLUMNS = [
-  { key: 'pending', label: 'Pending', icon: '\U0001f4cb', color: 'text-gray-500', defaultOpen: true },
-  { key: 'running', label: 'Running', icon: '\U0001f527', color: 'text-yellow-600', defaultOpen: true },
-  { key: 'done', label: 'Done', icon: '\u2705', color: 'text-green-600', defaultOpen: false },
+  { key: 'pending', label: 'Pending', icon: UI_EMOJI.clipboard, color: 'text-gray-500', defaultOpen: true },
+  { key: 'running', label: 'Running', icon: UI_EMOJI.wrench, color: 'text-yellow-600', defaultOpen: true },
+  { key: 'done', label: 'Done', icon: UI_EMOJI.check, color: 'text-green-600', defaultOpen: false },
 ]
 const MAX_VISIBLE = 5
-const STATUS_ICON = { pending: '\U0001f4cb', running: '\U0001f504', done: '\u2705', failed: '\u274c' }
+const STATUS_ICON = {
+  pending: UI_EMOJI.clipboard,
+  running: UI_EMOJI.refresh,
+  done: UI_EMOJI.check,
+  failed: UI_EMOJI.cross,
+}
 
 export default function CompactTaskBoard({ tasks }) {
   const [collapsed, setCollapsed] = useState({ running: false, pending: false, done: true })
@@ -34,17 +40,17 @@ export default function CompactTaskBoard({ tasks }) {
               <span>{col.icon}</span>
               <span className={`font-semibold ${col.color}`}>{col.label}</span>
               <span className="ml-auto text-gray-400 font-mono text-[11px]">{items.length}</span>
-              {items.length > MAX_VISIBLE && <span className="text-gray-300 text-[10px]">{!isCollapsed ? '\u25b2' : '\u25bc'}</span>}
+              {items.length > MAX_VISIBLE && <span className="text-gray-300 text-[10px]">{!isCollapsed ? '▲' : '▼'}</span>}
             </button>
             {showItems.slice(0, col.key === 'done' ? MAX_VISIBLE : items.length).map((task) => (
               <div key={task.id} className="ml-2 pl-2.5 border-l-2 border-gray-200 py-1.5 mb-0.5 hover:border-gray-400 transition-colors">
                 <div className="flex items-start gap-1.5">
-                  <span className="text-[10px] mt-0.5">{STATUS_ICON[task.status] || '\U0001f4cb'}</span>
+                  <span className="text-[10px] mt-0.5">{STATUS_ICON[task.status] || UI_EMOJI.clipboard}</span>
                   <div className="min-w-0 flex-1">
                     <p className="text-xs text-gray-700 truncate leading-tight font-medium">{task.title}</p>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <span className="text-[10px] text-gray-400 font-mono">{task.agent}</span>
-                      {task.duration_ms != null && <><span className="text-gray-300">\u00b7</span><span className="text-[10px] text-gray-400 font-mono">{(task.duration_ms / 1000).toFixed(1)}s</span></>}
+                      {task.duration_ms != null && <><span className="text-gray-300">·</span><span className="text-[10px] text-gray-400 font-mono">{(task.duration_ms / 1000).toFixed(1)}s</span></>}
                     </div>
                   </div>
                 </div>
