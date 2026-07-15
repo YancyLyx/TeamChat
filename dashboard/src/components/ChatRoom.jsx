@@ -14,6 +14,7 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
   const penRef = useRef(false)
   const seenIds = useRef(new Set())
   const dedupTimestamps = useRef({})
+  const recentKeys = useRef(new Map())
 
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight }, [chatMessages])
 
@@ -73,10 +74,24 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
     penRef.current = true
     const adds = []
     for (const m of nms) {
+      // Universal 3s dedup: skip if the same raw event arrived recently
+      const raw = m.data || {}
+      const recentKey = `${m.type}|${raw.agent || raw.from || ''}|${raw.content || raw.prompt || raw.message || JSON.stringify(raw)}`.slice(0, 200)
+      const now = Date.now()
+      if (recentKeys.current.has(recentKey)) {
+        if (now - recentKeys.current.get(recentKey) < 3000) continue
+      }
+      recentKeys.current.set(recentKey, now)
+      if (recentKeys.current.size > 200) {
+        const oldestKeys = [...recentKeys.current.entries()].sort((a, b) => a[1] - b[1]).slice(-100).map(([k]) => k)
+        recentKeys.current = new Map(oldestKeys.map((k) => [k, recentKeys.current.get(k)]))
+      }
+
       if (m.type === 'chat_message') {
         const d = m.data || {}
         const mid = d.id || `c-${d.agent || 'unknown'}-${d.timestamp || ''}-${adds.length}-${Date.now()}`
         if (mid && seenIds.current.has(mid)) continue; if (mid) seenIds.current.add(mid)
+        // Legacy dedup — kept for backward compatibility
         const dedupKey = `${d.kind}|${d.agent}|${d.content}`
         if (dedupKey) {
           const lastSeen = dedupTimestamps.current[dedupKey] || 0
