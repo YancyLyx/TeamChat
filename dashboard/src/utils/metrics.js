@@ -31,6 +31,7 @@ export function normalizeAgentMetrics(stats = {}, sessions = []) {
     ))
     const totalTokens = Number(apiStats.total_tokens ?? tokenTotal(apiStats.token_usage)) ||
       agentSessions.reduce((sum, s) => sum + tokenTotal(s.token_usage), 0)
+    const toolCalls = Number(apiStats.tool_calls ?? 0)
 
     return [name, {
       total_tasks: totalTasks,
@@ -39,6 +40,7 @@ export function normalizeAgentMetrics(stats = {}, sessions = []) {
       avg_duration_ms: avgDuration,
       total_tokens: totalTokens,
       token_usage: apiStats.token_usage || {},
+      tool_calls: toolCalls,
     }]
   }))
 }
