@@ -366,6 +366,44 @@ class TestTeamChatSessionStore:
         store.close()
 
 
+class TestTokenAndToolStats:
+    """PR #54 — token_stats / tool_stats helpers."""
+
+    def test_token_and_tool_stats_respect_tag(self, tmp_path):
+        from engine.config import Config
+        from engine.session_store import SessionStore as TeamChatSessionStore
+        from engine.store import AgentCallStore
+
+        config = Config(
+            repo_owner="test", repo_name="test", repo_url="https://github.com/test/test",
+            project_root=tmp_path,
+        )
+        ss = TeamChatSessionStore(config)
+        ss.init()
+        store = AgentCallStore(config)
+        store.init()
+
+        store.log(
+            agent_name="coco咪", prompt="prod", output="ok", exit_code=0, duration_ms=10,
+            tag="prod", token_usage={"input_tokens": 10, "output_tokens": 5},
+            tool_calls=[{"name": "grep", "status": "ok"}],
+        )
+        store.log(
+            agent_name="coco咪", prompt="test", output="ok", exit_code=0, duration_ms=10,
+            tag="test", token_usage={"input_tokens": 100, "output_tokens": 100},
+            tool_calls=[{"name": "ignored", "status": "ok"}],
+        )
+
+        tokens = store.token_stats(agent_name="coco咪", tag="prod")
+        tools = store.tool_stats(agent_name="coco咪", tag="prod")
+        assert tokens["total_tokens"] == 15
+        assert tools["total_tool_calls"] == 1
+        assert tools["tools_by_name"]["grep"] == 1
+
+        store.close()
+        ss.close()
+
+
 class TestStoreTokenStats:
     """Token aggregation in SessionStore.stats (PR #40)."""
 
