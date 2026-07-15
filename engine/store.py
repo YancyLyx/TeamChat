@@ -7,6 +7,7 @@ FK-linked to teamchat_sessions.id for data isolation.
 
 import json
 import sqlite3
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -70,6 +71,7 @@ class AgentCallStore:
         self.config = config
         self.db_path = config.teamchat_dir / "teamchat.db"
         self._conn: sqlite3.Connection | None = None
+        self._lock = threading.Lock()
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -98,20 +100,21 @@ class AgentCallStore:
             teamchat_session_id: int = 1,
             started_at: str = "", finished_at: str = "") -> int:
         now = datetime.now(timezone.utc).isoformat()
-        self.conn.execute(
-            """INSERT INTO agent_calls
-               (teamchat_session_id, agent_name, task_type, prompt, output,
-                exit_code, duration_ms, token_usage, tool_calls, tag,
-                started_at, finished_at, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (teamchat_session_id, agent_name, task_type, prompt, output,
-             exit_code, duration_ms,
-             json.dumps(token_usage or {}, ensure_ascii=False),
-             json.dumps(tool_calls or [], ensure_ascii=False),
-             tag, started_at or now, finished_at or now, now),
-        )
-        self._conn.commit()
-        return self._conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        with self._lock:
+            self.conn.execute(
+                """INSERT INTO agent_calls
+                   (teamchat_session_id, agent_name, task_type, prompt, output,
+                    exit_code, duration_ms, token_usage, tool_calls, tag,
+                    started_at, finished_at, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (teamchat_session_id, agent_name, task_type, prompt, output,
+                 exit_code, duration_ms,
+                 json.dumps(token_usage or {}, ensure_ascii=False),
+                 json.dumps(tool_calls or [], ensure_ascii=False),
+                 tag, started_at or now, finished_at or now, now),
+            )
+            self._conn.commit()
+            return self._conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
     def get_recent(self, limit: int = 20, agent_name: str | None = None,
                    tag: str = "prod", teamchat_session_id: int = 1) -> list[CallRow]:
@@ -145,11 +148,32 @@ class AgentCallStore:
         avg_dur = self.conn.execute(
             base.replace("COUNT(*)", "AVG(duration_ms)"), params
         ).fetchone()[0] or 0
+
+        token_rows = self.conn.execute(
+            base.replace("COUNT(*)", "token_usage"), params
+        ).fetchall()
+        token_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+        for (raw_usage,) in token_rows:
+            try:
+                usage = json.loads(raw_usage) if isinstance(raw_usage, str) else (raw_usage or {})
+            except json.JSONDecodeError:
+                usage = {}
+            if not isinstance(usage, dict):
+                continue
+            input_tokens = int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
+            output_tokens = int(usage.get("output_tokens") or usage.get("completion_tokens") or 0)
+            total_tokens = int(usage.get("total_tokens") or usage.get("tokens") or 0)
+            token_usage["input_tokens"] += input_tokens
+            token_usage["output_tokens"] += output_tokens
+            token_usage["total_tokens"] += total_tokens or input_tokens + output_tokens
+
         return {
             "total_calls": total,
             "total_success": success,
             "success_rate": success / total if total > 0 else 0.0,
             "avg_duration_ms": round(avg_dur, 0),
+            "token_usage": token_usage,
+            "total_tokens": token_usage["total_tokens"],
         }
 
     def stats_by_agent(self, tag: str = "prod", teamchat_session_id: int = 1) -> dict[str, dict]:
@@ -189,3 +213,7 @@ def create_store(config: Config | None = None) -> AgentCallStore:
     store = AgentCallStore(config)
     store.init()
     return store
+
+
+# Backward-compatible alias used by older imports/tests
+SessionStore = AgentCallStore

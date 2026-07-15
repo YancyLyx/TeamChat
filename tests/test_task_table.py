@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import pytest
+import sqlite3
 
 from engine.config import Config, load_config
+from engine.session_store import SessionStore as TeamChatSessionStore
 from engine.task_table import TaskTable
 
 
@@ -17,10 +19,13 @@ def task_table(tmp_path):
         repo_url=base.repo_url,
         project_root=tmp_path,
     )
+    ss = TeamChatSessionStore(config)
+    ss.init()
     tt = TaskTable(config)
     tt.init()
     yield tt
     tt.close()
+    ss.close()
 
 
 def test_create_and_get_task(task_table: TaskTable):
@@ -30,6 +35,7 @@ def test_create_and_get_task(task_table: TaskTable):
     assert task.title == "Add refresh button"
     assert task.status == "pending"
     assert task.depends_on == []
+    assert task.teamchat_session_id == 1
 
     loaded = task_table.get(task.id)
     assert loaded is not None

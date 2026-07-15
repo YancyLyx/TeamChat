@@ -16,18 +16,21 @@ from engine.config import Config
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS task_table (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    agent       TEXT    NOT NULL,          -- cici咪 / coco咪 / soso咪
+    teamchat_session_id INTEGER NOT NULL DEFAULT 1,
+    agent       TEXT    NOT NULL,
     title       TEXT    NOT NULL,
     description TEXT    NOT NULL DEFAULT '',
-    status      TEXT    NOT NULL DEFAULT 'pending',  -- pending|running|done|failed|abandoned
-    depends_on  TEXT    NOT NULL DEFAULT '[]',        -- JSON array of task IDs
-    github_issue TEXT   NOT NULL DEFAULT '',          -- associated GitHub issue URL
-    output_summary TEXT NOT NULL DEFAULT '',          -- agent's final text
+    status      TEXT    NOT NULL DEFAULT 'pending',
+    depends_on  TEXT    NOT NULL DEFAULT '[]',
+    github_issue TEXT   NOT NULL DEFAULT '',
+    output_summary TEXT NOT NULL DEFAULT '',
     created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
     started_at  TEXT    NOT NULL DEFAULT '',
-    finished_at TEXT    NOT NULL DEFAULT ''
+    finished_at TEXT    NOT NULL DEFAULT '',
+    FOREIGN KEY (teamchat_session_id) REFERENCES teamchat_sessions(id)
 );
 
+CREATE INDEX IF NOT EXISTS idx_task_session ON task_table(teamchat_session_id);
 CREATE INDEX IF NOT EXISTS idx_task_status ON task_table(status);
 CREATE INDEX IF NOT EXISTS idx_task_agent ON task_table(agent);
 """
@@ -36,6 +39,7 @@ CREATE INDEX IF NOT EXISTS idx_task_agent ON task_table(agent);
 @dataclass
 class Task:
     id: int = 0
+    teamchat_session_id: int = 1
     agent: str = ""
     title: str = ""
     description: str = ""
@@ -54,6 +58,7 @@ class Task:
     def to_dict(self) -> dict:
         return {
             "id": self.id,
+            "teamchat_session_id": self.teamchat_session_id,
             "agent": self.agent,
             "title": self.title,
             "description": self.description,
@@ -89,6 +94,14 @@ class TaskTable:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.executescript(SCHEMA)
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(task_table)")}
+        if "teamchat_session_id" not in columns:
+            self._conn.execute(
+                "ALTER TABLE task_table ADD COLUMN teamchat_session_id INTEGER NOT NULL DEFAULT 1"
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_task_session ON task_table(teamchat_session_id)"
+            )
         self._conn.commit()
 
     def close(self):
@@ -99,15 +112,16 @@ class TaskTable:
     # -- CRUD --
 
     def create(self, agent: str, title: str, description: str = "",
-               depends_on: list[int] | None = None) -> Task:
+               depends_on: list[int] | None = None,
+               teamchat_session_id: int = 1) -> Task:
         """Create a new task. Returns the created Task with ID."""
         now = datetime.now(timezone.utc).isoformat()
         deps = json.dumps(depends_on or [], ensure_ascii=False)
         self.conn.execute(
             """INSERT INTO task_table
-               (agent, title, description, status, depends_on, created_at)
-               VALUES (?, ?, ?, 'pending', ?, ?)""",
-            (agent, title, description, deps, now),
+               (teamchat_session_id, agent, title, description, status, depends_on, created_at)
+               VALUES (?, ?, ?, ?, 'pending', ?, ?)""",
+            (teamchat_session_id, agent, title, description, deps, now),
         )
         self.conn.commit()
         row_id = self.conn.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -145,10 +159,14 @@ class TaskTable:
         )
         self.conn.commit()
 
-    def list_tasks(self, status: str | None = None, agent: str | None = None) -> list[Task]:
+    def list_tasks(self, status: str | None = None, agent: str | None = None,
+                   teamchat_session_id: int | None = None) -> list[Task]:
         """List tasks, optionally filtered."""
         conditions = []
         params = []
+        if teamchat_session_id is not None:
+            conditions.append("teamchat_session_id = ?")
+            params.append(teamchat_session_id)
         if status:
             conditions.append("status = ?")
             params.append(status)
@@ -233,23 +251,31 @@ class TaskTable:
     # -- helpers --
 
     def _row_to_task(self, row: tuple) -> Task:
-        depends_raw = row[5] if len(row) > 5 else "[]"
+        # Legacy rows: (id, agent, ...) without teamchat_session_id
+        if len(row) >= 12:
+            session_id = row[1]
+            offset = 1
+        else:
+            session_id = 1
+            offset = 0
+        depends_raw = row[5 + offset] if len(row) > 5 + offset else "[]"
         try:
             depends = json.loads(depends_raw) if isinstance(depends_raw, str) else depends_raw
         except (json.JSONDecodeError, TypeError):
             depends = []
         return Task(
             id=row[0],
-            agent=row[1],
-            title=row[2],
-            description=row[3],
-            status=row[4],
+            teamchat_session_id=session_id,
+            agent=row[1 + offset],
+            title=row[2 + offset],
+            description=row[3 + offset],
+            status=row[4 + offset],
             depends_on=depends,
-            github_issue=row[6] if len(row) > 6 else "",
-            output_summary=row[7] if len(row) > 7 else "",
-            created_at=row[8] if len(row) > 8 else "",
-            started_at=row[9] if len(row) > 9 else "",
-            finished_at=row[10] if len(row) > 10 else "",
+            github_issue=row[6 + offset] if len(row) > 6 + offset else "",
+            output_summary=row[7 + offset] if len(row) > 7 + offset else "",
+            created_at=row[8 + offset] if len(row) > 8 + offset else "",
+            started_at=row[9 + offset] if len(row) > 9 + offset else "",
+            finished_at=row[10 + offset] if len(row) > 10 + offset else "",
         )
 
 

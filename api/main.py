@@ -80,6 +80,7 @@ manager = ConnectionManager()
 async def lifespan(app: FastAPI):
     """Initialize engine components on startup, clean up on shutdown."""
     config = load_config()
+    session_store = create_session_store(config)
     store = create_store(config)
     runner = create_runner(config)
     router_inst = Router()
@@ -87,7 +88,6 @@ async def lifespan(app: FastAPI):
     bus.init()
     task_table = create_task_table(config)
     runtime = create_runtime(config)
-    session_store = create_session_store(config)
 
     # Discover existing sessions
     runtime.discover_sessions()
