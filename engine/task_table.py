@@ -72,7 +72,7 @@ class TaskTable:
 
     def __init__(self, config: Config):
         self.config = config
-        self.db_path = config.teamchat_dir / "tasks.db"
+        self.db_path = config.teamchat_dir / "teamchat.db"
         self._conn: sqlite3.Connection | None = None
 
     # -- lifecycle --
@@ -87,6 +87,7 @@ class TaskTable:
         self.config.teamchat_dir.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.db_path))
         self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.executescript(SCHEMA)
         self._conn.commit()
 
