@@ -61,14 +61,14 @@ ALL_AGENTS = (AGENT_CICI, AGENT_COCO, AGENT_SOSO)
 CLI_TEMPLATES: dict[str, list[str]] = {
     "claude": ["claude", "--print", "--output-format", "json", "{prompt}"],
     "codex": ["codex", "exec", "--json", "{prompt}"],
-    "cursor": ["cursor-agent", "{prompt}"],
+    "cursor": ["cursor-agent", "--print", "--output-format", "stream-json", "{prompt}"],
 }
 
 # Templates with --continue / --resume for session context
 CLI_CONTINUE_TEMPLATES: dict[str, list[str]] = {
     "claude": ["claude", "--print", "--output-format", "json", "--continue", "{prompt}"],
     "codex": ["codex", "exec", "resume", "--last", "--json", "{prompt}"],
-    "cursor": ["cursor-agent", "{prompt}"],  # cursor doesn't have a known --continue flag yet
+    "cursor": ["cursor-agent", "--print", "--output-format", "stream-json", "--continue", "{prompt}"],
 }
 
 
@@ -122,7 +122,8 @@ class Config:
             if agent.cli == "codex":
                 return [cli_path, "exec", "resume", session_id, "--json", prompt]
             if agent.cli == "cursor":
-                return [cli_path, "--print", f"--resume={session_id}", prompt]
+                return [cli_path, "--print", "--output-format", "stream-json",
+                        f"--resume={session_id}", prompt]
         templates = CLI_CONTINUE_TEMPLATES if use_continue else CLI_TEMPLATES
         template = templates.get(agent.cli, CLI_TEMPLATES[agent.cli])
         return [part.format(prompt=prompt) for part in template]
