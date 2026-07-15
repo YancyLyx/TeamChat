@@ -238,33 +238,35 @@ class AgentRunner:
         if error_output:
             logger.warning(f"⚠️  {agent.name} stderr: {error_output[:200]}")
 
-        # Attempt JSON parsing for structured CLI output.
+        # Parse stream-json / JSON output into clean text
         token_usage: dict = {}
         if agent.cli == "claude":
-            try:
-                parsed = json.loads(output)
-                if isinstance(parsed, dict):
-                    # Claude CLI --output-format json wraps text in "result" field
-                    if "result" in parsed and isinstance(parsed["result"], str):
-                        output = parsed["result"]
-                    # Fallback: Claude API content blocks
-                    elif "content" in parsed:
-                        content_blocks = parsed.get("content", [])
-                        text_parts = []
-                        for block in content_blocks:
-                            if isinstance(block, dict) and block.get("type") == "text":
-                                text_parts.append(block.get("text", ""))
-                        if text_parts:
-                            output = "\n".join(text_parts)
-                    # Extract token usage
-                    usage = parsed.get("usage", {})
+            text_parts = []
+            # Handle stream-json (JSONL, one JSON object per line)
+            for line in raw_output.splitlines():
+                line = line.strip()
+                if not line or not line.startswith("{"):
+                    continue
+                try:
+                    evt = json.loads(line)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                etype = evt.get("type", "")
+                if etype == "assistant":
+                    for item in evt.get("message", {}).get("content", []):
+                        if item.get("type") == "text":
+                            text_parts.append(item.get("text", ""))
+                elif etype == "result":
+                    if "result" in evt and isinstance(evt["result"], str) and not text_parts:
+                        text_parts.append(evt["result"])
+                    usage = evt.get("usage", {})
                     if usage:
                         token_usage = {
                             "input_tokens": usage.get("input_tokens", 0),
                             "output_tokens": usage.get("output_tokens", 0),
                         }
-            except (json.JSONDecodeError, TypeError):
-                pass  # Not JSON, keep raw output
+            if text_parts:
+                output = "\n".join(text_parts)
         elif agent.cli == "codex":
             clean_output, usage, saw_json_event = parse_codex_jsonl_output(output)
             if saw_json_event:
