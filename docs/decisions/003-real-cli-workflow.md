@@ -891,3 +891,119 @@ CREATE TABLE IF NOT EXISTS metrics (
 1. **任务完成速度**：同一个需求（如"加刷新按钮"），人肉 vs TeamChat 的端到端时间对比
 2. **人工操作次数**：统计人类审批和手动介入的次数变化
 3. **协作日志完整性**：GitHub Issues 关闭率（当前已经 10/10 ✅）
+
+---
+
+## 12. 数据库设计
+
+### 12.1 概念定义
+
+| 概念 | 定义 | 对应实体 |
+|---|---|---|
+| **Session（TeamChat 会话）** | 一组 agent 协作的上下文。对应 `teamchat_sessions` 表 | 前端会话管理面板中的一项 |
+| **Agent Invocation（调用）** | 每次 Engine spawn CLI 并获取回复。对应 `sessions` 表的一行 | 聊天室中 agent 的一条回复 |
+| **Task（任务）** | cici咪 通过 MCP 工具创建的、指派给某 agent 的工作。**粒度 = GitHub PR**。对应 `task_table` 的一行 | GitHub Issue + PR 的工作单元 |
+| **Turn（轮次）** | 从人类发消息到所有相关 agent 完成回复。不是存表概念，是时序概念 | 聊天室中"人类输入 → 全部回复"的一个闭环 |
+
+### 12.2 表结构
+
+#### tasks.db — `task_table`（任务编排）
+
+```
+字段                  类型        说明
+──────────────────────────────────────────────────────────────────
+id                    INTEGER     PK
+teamchat_session_id   INTEGER     FK → teamchat_sessions.id  数据隔离
+agent                 TEXT        指派给 cici咪 / coco咪 / soso咪
+title                 TEXT        任务标题（如 "加刷新按钮"）
+description           TEXT        详细描述
+status                TEXT        pending / running / done / failed / abandoned
+depends_on            TEXT        JSON: [task_id, ...]  依赖的任务
+github_issue          TEXT        GitHub Issue URL
+github_pr             TEXT        GitHub PR URL  ← 🆕
+output_summary        TEXT        agent 完成后的正文摘要
+created_at            TEXT        ISO
+started_at            TEXT        status→running 时写入
+finished_at           TEXT        status→done/failed 时写入
+```
+
+**任务 = GitHub PR 级别。** 不是"人类说了一句话"，而是 cici咪 通过 MCP 工具 `create_task()` 创建的工作单元。
+
+#### sessions.db — `sessions`（Agent 调用日志）
+
+```
+字段                  类型        说明
+──────────────────────────────────────────────────────────────────
+id                    INTEGER     PK
+teamchat_session_id   INTEGER     FK → teamchat_sessions.id  数据隔离
+agent_name            TEXT        cici咪 / coco咪 / soso咪
+task_type             TEXT        chat_greeting / chat_task / chat_message
+prompt                TEXT        发给 agent 的完整 prompt
+output                TEXT        agent 返回的正文（已清理，emoji/summary）
+exit_code             INTEGER     0=成功，-1=超时
+duration_ms           INTEGER     耗时毫秒
+token_usage           TEXT        JSON: {input_tokens, output_tokens, total_tokens}
+tool_calls            TEXT        JSON: [{tool_name, status, duration_ms}] ← 🆕
+tag                   TEXT        prod / test
+started_at            TEXT        ISO
+finished_at           TEXT        ISO
+created_at            TEXT        ISO
+```
+
+**每次 Engine spawn CLI 都写一行。** 打招呼（三条回复 = 3 行）、@mention（1 行）、cici咪 分析（1 行）。
+
+#### teamchat.db — `teamchat_sessions`（前端会话）
+
+```
+字段                  类型        说明
+──────────────────────────────────────────────────────────────────
+id                    INTEGER     PK
+name                  TEXT        会话名称（如 "TeamChat 开发"）
+directory             TEXT        工作目录绝对路径
+claude_id             TEXT        Claude session ID
+codex_id              TEXT        Codex thread_id
+cursor_id             TEXT        Cursor session ID
+status                TEXT        active / archived
+created_at            TEXT        ISO
+updated_at            TEXT        ISO
+```
+
+### 12.3 数据流转（以"加刷新按钮"为例）
+
+```
+1. 人类发消息 → 不存表（WebSocket 推送，不持久化）
+2. cici咪 分析 → sessions 表写一行（agent=cici咪, task_type=chat_message）
+3. cici咪 MCP create_task → task_table 写一行（status=pending, agent=coco咪）
+4. Engine 派发 → sessions 表写一行（agent=coco咪, task_type=chat_task）
+5. coco咪 完成 → task_table 更新（status=done） + sessions 行已写入
+6. soso咪 review → sessions 表写一行（agent=soso咪, task_type=chat_task）
+7. Stats 面板 → 读 sessions 表聚合（token, 耗时, 成功率） + task_table（任务状态）
+```
+
+### 12.4 支持的评估指标
+
+| ADR-003 §9 指标 | 数据来源 | SQL |
+|---|---|---|
+| Agent 任务完成数 | task_table WHERE agent=? AND status='done' | COUNT |
+| 成功率 | sessions WHERE agent=? (exit_code=0 / total) | 聚合 |
+| 平均耗时 | sessions WHERE agent=? AVG(duration_ms) | AVG |
+| Token 消耗 | sessions WHERE agent=? SUM(JSON_EXTRACT(token_usage, '$.total_tokens')) | SUM |
+| 任务周转时间 | task_table finished_at - created_at | 差值 |
+| 自动化率 | task_table done / (done + human_escalations) | 比率 |
+| 审批请求数 | sessions WHERE tool_calls NOT NULL COUNT | COUNT |
+
+### 12.5 表关系
+
+```
+teamchat_sessions (1) ──< (N) sessions
+teamchat_sessions (1) ──< (N) task_table
+```
+
+所有调用日志和任务都绑定到具体的 TeamChat 会话。切换前端会话时，查询都带 `WHERE teamchat_session_id = ?`。
+
+### 12.6 聊天历史
+
+聊天室启动时从 `sessions` 表加载当前会话的历史消息：
+- `GET /api/sessions?teamchat_session_id=1&tag=prod&limit=50`
+- 只加载 `tag=prod`（排除测试数据）
+- 前端渲染：text → 气泡，thinking → 折叠，tool_calls → 审批卡片
