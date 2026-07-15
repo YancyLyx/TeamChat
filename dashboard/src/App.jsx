@@ -34,20 +34,25 @@ export default function App() {
 
   const fetchData = useCallback(async () => {
     try {
-      setLoading(true); setError(null)
-      const [ar, sr, str, tr] = await Promise.all([
+     setLoading(true); setError(null)
+      const [ar, sr, str, tr, er] = await Promise.all([
         fetch(`${API_BASE}/agents`),
         fetch(`${API_BASE}/sessions?limit=30`),
         fetch(`${API_BASE}/stats`),
         fetch(`${API_BASE}/tasks/table`),
+        fetch(`${API_BASE}/engine`),
       ])
       if (!ar.ok || !sr.ok || !str.ok) throw new Error('API failed')
-      const ad = await ar.json(), sd = await sr.json(), st = await str.json()
-      const tableRows = tr.ok ? await tr.json() : []
-      setAgentMetrics(normalizeAgentMetrics(st, sd))
-      setAgents(ad.map((a) => ({
-        ...a,
-        total_tasks: st?.agents?.[a.name]?.total_calls ?? a.total_tasks ?? 0,
+     const ad = await ar.json(), sd = await sr.json(), st = await str.json()
+     const tableRows = tr.ok ? await tr.json() : []
+      const engineData = er.ok ? await er.json() : { active_agents: [] }
+      const busyMap = {}
+      for (const a of engineData.active_agents || []) { busyMap[a.name] = a.is_busy }
+     setAgentMetrics(normalizeAgentMetrics(st, sd))
+     setAgents(ad.map((a) => ({
+       ...a,
+        is_busy: busyMap[a.name] ?? a.is_busy ?? false,
+       total_tasks: st?.agents?.[a.name]?.total_calls ?? a.total_tasks ?? 0,
         success_rate: st?.agents?.[a.name]?.success_rate ?? a.success_rate ?? 0,
         avg_duration_ms: st?.agents?.[a.name]?.avg_duration_ms ?? a.avg_duration_ms ?? 0,
         total_tokens: st?.agents?.[a.name]?.total_tokens ?? a.total_tokens ?? 0,
