@@ -85,7 +85,13 @@ class SessionStore:
         # Seed default session if database is empty
         if self.count() == 0:
             s = self.create(DEFAULT_SESSION_NAME, str(self.config.project_root))
-            agent_ids = _discover_agent_session_ids(self.config.project_root)
+            discovered = _discover_agent_session_ids(self.config.project_root)
+            known = {
+                "claude_id": "5fbaf844-4cbc-48b2-9242-7902d098bd81",
+                "codex_id": "019f40ef-e8cf-76f0-8b49-6691cc7275f3",
+                "cursor_id": "04e64d6d-de38-4861-a7ce-87c26d28d77f",
+            }
+            agent_ids = {k: discovered.get(k) or known.get(k, "") for k in known}
             if any(agent_ids.values()):
                 self.update(s.id, **agent_ids)
 
