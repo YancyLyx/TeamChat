@@ -16,10 +16,9 @@ from contextlib import asynccontextmanager
 import os
 import uuid
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi import File, UploadFile
 from starlette.responses import Response
 import json as _stdlib_json
 
@@ -177,7 +176,10 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.get("/api/health")
 async def health():
     """Health check endpoint."""
-   return {"status": "ok", "version": "0.1.0"}
+    return {"status": "ok", "version": "0.1.0"}
+
+
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 @app.post("/api/upload")
@@ -188,6 +190,8 @@ async def upload_file(file: UploadFile = File(...)):
     filename = f"teamchat-{uuid.uuid4().hex[:12]}{ext}"
     filepath = os.path.join("/tmp", filename)
     content = await file.read()
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 10MB)")
     with open(filepath, "wb") as f:
         f.write(content)
     return {"path": filepath, "name": safe_name, "size": len(content)}
@@ -208,7 +212,7 @@ async def stats(request: Request, teamchat_session_id: int = 1):
         base = by_agent.get(agent.name, {})
         token_data = store.token_stats(agent_name=agent.name, teamchat_session_id=teamchat_session_id)
         tool_data = store.tool_stats(agent_name=agent.name, teamchat_session_id=teamchat_session_id)
-        token_grand_total += token_data.get("output_tokens", 0)
+        token_grand_total += token_data.get("total_tokens", 0)
         enriched[agent.name] = {
             **base,
             "input_tokens": token_data.get("input_tokens", 0),

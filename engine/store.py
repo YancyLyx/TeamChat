@@ -184,10 +184,10 @@ class AgentCallStore:
         return {r[0]: self.stats(agent_name=r[0], tag=tag, teamchat_session_id=teamchat_session_id) for r in rows}
 
     def token_stats(self, agent_name: str | None = None,
-                    teamchat_session_id: int = 1) -> dict:
+                    tag: str = "prod", teamchat_session_id: int = 1) -> dict:
         """Aggregate token usage from JSON token_usage field."""
-        query = "SELECT token_usage FROM agent_calls WHERE teamchat_session_id = ?"
-        params = [teamchat_session_id]
+        query = "SELECT token_usage FROM agent_calls WHERE tag = ? AND teamchat_session_id = ?"
+        params = [tag, teamchat_session_id]
         if agent_name:
             query += " AND agent_name = ?"
             params.append(agent_name)
@@ -208,10 +208,10 @@ class AgentCallStore:
         }
 
     def tool_stats(self, agent_name: str | None = None,
-                   teamchat_session_id: int = 1) -> dict:
+                   tag: str = "prod", teamchat_session_id: int = 1) -> dict:
         """Aggregate tool call stats from JSON tool_calls field."""
-        query = "SELECT tool_calls FROM agent_calls WHERE teamchat_session_id = ?"
-        params = [teamchat_session_id]
+        query = "SELECT tool_calls FROM agent_calls WHERE tag = ? AND teamchat_session_id = ?"
+        params = [tag, teamchat_session_id]
         if agent_name:
             query += " AND agent_name = ?"
             params.append(agent_name)
