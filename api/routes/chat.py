@@ -59,6 +59,7 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
     if is_greeting:
         runner = request.app.state.runner
         store = request.app.state.store
+        router = request.app.state.router
         greeting_msg = f"人类在聊天室发了 '{content}'。请简短回复一句问候/自我介绍（一句话即可），让人知道你在。"
 
         # Broadcast "analyzing" notification
@@ -69,8 +70,12 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
 
         # Parallel: all three agents reply concurrently
         async def greet_one(agent):
+            router.mark_busy(agent)
             task = AgentTask(prompt=greeting_msg, timeout_seconds=60)
-            result = await runner.run(agent, task)
+            try:
+                result = await runner.run(agent, task)
+            finally:
+                router.mark_free(agent)
             # Log to store
             store.log(
                 agent_name=agent.name, prompt=task.full_prompt(),
@@ -107,9 +112,14 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
 
         runner = request.app.state.runner
         store = request.app.state.store
+        router = request.app.state.router
 
         analysis_prompt = build_cici_analysis_prompt(content)
-        result = await runner.run(AGENT_CICI, AgentTask(prompt=analysis_prompt, timeout_seconds=60))
+        router.mark_busy(AGENT_CICI)
+        try:
+            result = await runner.run(AGENT_CICI, AgentTask(prompt=analysis_prompt, timeout_seconds=60))
+        finally:
+            router.mark_free(AGENT_CICI)
         analysis = result.output.strip()
 
         if analysis.startswith("ANSWER:"):
@@ -134,7 +144,11 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
             target = dispatch.agent
 
             task = AgentTask(prompt=task_desc, context=f"cici咪 assigned: {task_desc}")
-            result = await runner.run(target, task)
+            router.mark_busy(target)
+            try:
+                result = await runner.run(target, task)
+            finally:
+                router.mark_free(target)
 
             session_id = store.log(
                 agent_name=target.name, prompt=task.full_prompt(),
