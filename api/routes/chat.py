@@ -24,6 +24,7 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 class ChatRequest(BaseModel):
     content: str = Field(..., min_length=1)
+    teamchat_session_id: int = 1  # which TeamChat session this message belongs to
 
 
 class ChatResponse(BaseModel):
@@ -43,11 +44,19 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
     ws_mgr = request.app.state.ws_manager
     now = datetime.now(timezone.utc).isoformat()
 
-    # Broadcast human message to chat
+    # Broadcast + persist human message
     await ws_mgr.broadcast({
         "type": "chat_message",
         "data": {"kind": "human", "agent": "human", "content": content, "timestamp": now},
     })
+    # Log human message so chat history includes user content
+    store = request.app.state.store
+    store.log(
+        agent_name="human", prompt=content, output=content,
+        exit_code=0, duration_ms=0, task_type="chat_message", tag="prod",
+        teamchat_session_id=chat_req.teamchat_session_id,
+        started_at=now, finished_at=now,
+    )
 
     # ---- GREETING: broadcast to all three agents ----
     content_lower = content.lower().strip().rstrip("!！~～.。?？")
