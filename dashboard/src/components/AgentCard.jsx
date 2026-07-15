@@ -1,6 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AGENT_INFO, UI_EMOJI } from '../constants/agents.js'
-import { formatTokens } from '../utils/metrics.js'
 
 const AGENT_ROLE_CARDS = {
   'cici咪': {
@@ -22,10 +21,24 @@ const AGENT_ROLE_CARDS = {
 
 export default function AgentCard({ agent, sessions = [], compact }) {
   const [expanded, setExpanded] = useState(false)
+  const [elapsedSec, setElapsedSec] = useState(0)
   const info = AGENT_INFO[agent.name] || { emoji: UI_EMOJI.fallback, border: 'border-gray-300', nameColor: 'text-gray-700', role: agent.role || '' }
   const card = AGENT_ROLE_CARDS[agent.name]
+
+  useEffect(() => {
+    if (!agent.is_busy || !agent.busy_since) {
+      setElapsedSec(0)
+      return undefined
+    }
+    const tick = () => setElapsedSec(Math.max(0, (Date.now() - agent.busy_since) / 1000))
+    tick()
+    const id = setInterval(tick, 200)
+    return () => clearInterval(id)
+  }, [agent.is_busy, agent.busy_since])
+
+  const executingLabel = elapsedSec > 0 ? `executing (${elapsedSec.toFixed(1)}s)` : 'executing'
   const realtimeStatus = agent.is_busy
-    ? { icon: <><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse inline-block" /> executing</>, color: 'text-red-500' }
+    ? { icon: <><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse inline-block" /> {executingLabel}</>, color: 'text-red-500' }
     : { icon: <><span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" /> idle</>, color: 'text-green-600' }
 
   if (compact) {

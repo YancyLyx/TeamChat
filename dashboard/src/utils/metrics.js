@@ -60,3 +60,24 @@ export function weeklySummary(agentMetrics = {}) {
     total_tokens: values.reduce((sum, m) => sum + Number(m.total_tokens || 0), 0),
   }
 }
+
+export function formatDuration(ms) {
+  const value = Number(ms || 0)
+  if (value <= 0) return '—'
+  if (value < 60_000) return `${(value / 1000).toFixed(1)}s`
+  if (value < 3_600_000) return `${(value / 60_000).toFixed(1)} min`
+  return `${(value / 3_600_000).toFixed(1)} h`
+}
+
+export function liberationMetrics({ agentMetrics = {}, summary = {}, taskStats = null, humanMessages = 0 } = {}) {
+  const automationRate = taskStats?.completion_rate != null
+    ? taskStats.completion_rate * 100
+    : (summary.success_rate || 0) * 100
+  const manualInterventions = humanMessages + Object.values(agentMetrics)
+    .reduce((sum, m) => sum + Number(m.tool_calls || 0), 0)
+  return {
+    automation_rate: automationRate,
+    manual_interventions: manualInterventions,
+    message_to_completion: formatDuration(summary.avg_cycle_ms),
+  }
+}

@@ -30,7 +30,7 @@ def _wait_connected(page: Page, timeout: float = 15_000) -> None:
 
 
 def _open_session_manager(page: Page) -> None:
-    page.get_by_role("button").filter(has_text="TeamChat").first.click()
+    page.get_by_role("button").filter(has_text="📁").first.click()
     expect(page.get_by_role("heading", name="Session Manager")).to_be_visible()
 
 
@@ -70,13 +70,18 @@ class TestStatsConsistency:
             tag="prod",
             token_usage={"input_tokens": 100, "output_tokens": 50},
         )
+        api_url = e2e_servers["api_url"]
+        resp = httpx.get(f"{api_url}/api/stats", timeout=10.0)
+        resp.raise_for_status()
+        expected_tokens = resp.json()["agents"]["coco咪"]["total_tokens"]
+        assert expected_tokens >= 150
 
         _goto(page, e2e_servers["dashboard_url"])
         _wait_connected(page)
 
         stats_panel = page.locator("aside").last
-        expect(stats_panel.get_by_text("📊 Stats")).to_be_visible(timeout=10_000)
-        expect(stats_panel.get_by_text("150 tokens", exact=True)).to_be_visible()
+        expect(stats_panel.get_by_role("button", name="L1 效能")).to_be_visible(timeout=10_000)
+        expect(stats_panel.get_by_text(f"{expected_tokens} tokens", exact=True)).to_be_visible()
         expect(stats_panel.get_by_text("Weekly Summary")).to_be_visible()
         expect(stats_panel.get_by_text("Tokens", exact=True).last).to_be_visible()
 
@@ -109,9 +114,11 @@ class TestLivePanel:
         expect(right_aside.get_by_text("🔴 Live")).to_be_visible(timeout=10_000)
         expect(right_aside.get_by_text("Engine Mode")).to_be_visible()
         expect(right_aside.get_by_text("Parallel")).to_be_visible()
-        expect(right_aside.get_by_text("Active Agents")).to_be_visible()
+        expect(right_aside.get_by_text("Recent Events")).to_be_visible()
+        left_aside = page.locator("aside").first
         for agent in ("cici咪", "coco咪", "soso咪"):
-            expect(right_aside.get_by_text(agent, exact=True)).to_be_visible()
+            expect(left_aside.get_by_role("heading", name=agent)).to_be_visible()
+            expect(left_aside.get_by_text("idle").first).to_be_visible()
 
     def test_engine_api_returns_observability_fields(self, e2e_servers):
         api_url = e2e_servers["api_url"]
@@ -146,4 +153,4 @@ class TestRightPanelTabs:
         expect(right_aside.get_by_role("button", name="Stats", exact=True)).to_be_visible()
         expect(right_aside.get_by_role("button", name="Live", exact=True)).to_be_visible()
         expect(right_aside.get_by_role("button", name="Tasks", exact=True)).to_have_count(0)
-        expect(right_aside.get_by_text("📊 Stats")).to_be_visible()
+        expect(right_aside.get_by_role("button", name="L1 效能")).to_be_visible()
