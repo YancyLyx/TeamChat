@@ -338,6 +338,10 @@ class TestTeamChatSessionStore:
         assert default is not None
         assert default.name == DEFAULT_SESSION_NAME
         assert default.directory == str(tmp_path)
+        assert default.claude_id == "5fbaf844-4cbc-48b2-9242-7902d098bd81"
+        assert default.cursor_id == "04e64d6d-de38-4861-a7ce-87c26d28d77f"
+        assert default.codex_id
+        assert "019f40ef-e8cf-76f0-8b49-6691cc7275f3" in default.codex_id
         store.close()
 
     def test_create_list_delete(self, tmp_path):

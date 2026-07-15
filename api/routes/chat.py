@@ -43,6 +43,7 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
     parsed = parse_message(content)
     ws_mgr = request.app.state.ws_manager
     now = datetime.now(timezone.utc).isoformat()
+    teamchat_session_id = chat_req.teamchat_session_id
 
     # Broadcast + persist human message
     await ws_mgr.broadcast({
@@ -54,7 +55,7 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
     store.log(
         agent_name="human", prompt=content, output=content,
         exit_code=0, duration_ms=0, task_type="chat_message", tag="prod",
-        teamchat_session_id=chat_req.teamchat_session_id,
+        teamchat_session_id=teamchat_session_id,
         started_at=now, finished_at=now,
     )
 
@@ -91,6 +92,7 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
                 output=result.output, exit_code=result.exit_code,
                 duration_ms=result.duration_ms, token_usage=result.token_usage,
                 task_type="chat_greeting", tag="prod",
+                teamchat_session_id=teamchat_session_id,
                 started_at=result.started_at, finished_at=result.finished_at,
             )
             # Broadcast as soon as this agent replies
@@ -159,19 +161,20 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
             finally:
                 router.mark_free(target)
 
-            session_id = store.log(
+            call_id = store.log(
                 agent_name=target.name, prompt=task.full_prompt(),
                 output=result.output, exit_code=result.exit_code,
                 duration_ms=result.duration_ms, token_usage=result.token_usage,
-                task_type="chat_task", started_at=result.started_at, finished_at=result.finished_at,
+                task_type="chat_task", teamchat_session_id=teamchat_session_id,
+                started_at=result.started_at, finished_at=result.finished_at,
             )
 
             await ws_mgr.broadcast({
                 "type": "chat_message",
                 "data": {"kind": "agent_reply", "agent": target.name, "content": result.output[:500],
-                         "timestamp": now, "session_id": session_id},
+                         "timestamp": now, "session_id": call_id},
             })
-            return ChatResponse(session_id=session_id, target_agent=target.name,
+            return ChatResponse(session_id=call_id, target_agent=target.name,
                                 task_prompt=task_desc, status="completed" if result.success else "failed")
 
         elif analysis.startswith("CLARIFY:"):
@@ -219,26 +222,27 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
         task = AgentTask(prompt=clean)
         result = await runner.run_with_context(target, task)
 
-        session_id = store.log(
+        call_id = store.log(
             agent_name=target.name, prompt=task.full_prompt(),
             output=result.output, exit_code=result.exit_code,
             duration_ms=result.duration_ms, token_usage=result.token_usage,
-            task_type="chat", started_at=result.started_at, finished_at=result.finished_at,
+            task_type="chat", teamchat_session_id=teamchat_session_id,
+            started_at=result.started_at, finished_at=result.finished_at,
         )
 
         await ws_mgr.broadcast({
             "type": "task_complete",
-            "data": {"agent": target.name, "session_id": session_id,
+            "data": {"agent": target.name, "session_id": call_id,
                      "success": result.success, "duration_ms": result.duration_ms,
                      "output_preview": result.output[:200], "timestamp": now},
         })
         await ws_mgr.broadcast({
             "type": "chat_message",
             "data": {"kind": "agent_reply", "agent": target.name, "content": result.output[:500],
-                     "timestamp": now, "session_id": session_id},
+                     "timestamp": now, "session_id": call_id},
         })
 
-        return ChatResponse(session_id=session_id, target_agent=target.name,
+        return ChatResponse(session_id=call_id, target_agent=target.name,
                             task_prompt=clean, status="completed" if result.success else "failed")
     finally:
         router_inst.mark_free(target)

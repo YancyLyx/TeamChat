@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { AGENT_NAMES, AGENT_EMOJI } from '../constants/agents.js'
+import { ACTIVE_SESSION_KEY } from '../constants/session.js'
 
 const API_BASE = '/api/session-manager'
-const ACTIVE_KEY = 'teamchat_active_session_id'
 
 const emptyAgents = () => Object.fromEntries(AGENT_NAMES.map((n) => [n, null]))
 
@@ -44,7 +44,7 @@ export default function SessionManager({ open, onClose, onActiveChange }) {
       const rows = await res.json()
       const mapped = rows.map(apiToUi)
       setSessions(mapped)
-      const stored = localStorage.getItem(ACTIVE_KEY)
+      const stored = localStorage.getItem(ACTIVE_SESSION_KEY)
       const storedId = stored ? Number(stored) : null
       const active = mapped.find((s) => s.id === storedId) || mapped[0] || null
       setActiveId(active?.id ?? null)
@@ -84,7 +84,7 @@ export default function SessionManager({ open, onClose, onActiveChange }) {
       const created = apiToUi(await res.json())
       setSessions((prev) => [...prev, created])
       setActiveId(created.id)
-      localStorage.setItem(ACTIVE_KEY, String(created.id))
+      localStorage.setItem(ACTIVE_SESSION_KEY, String(created.id))
       setNewName('')
       setNewDir('')
     } catch (err) {
@@ -102,8 +102,8 @@ export default function SessionManager({ open, onClose, onActiveChange }) {
         if (activeId === id) {
           const fallback = next[0]?.id ?? null
           setActiveId(fallback)
-          if (fallback) localStorage.setItem(ACTIVE_KEY, String(fallback))
-          else localStorage.removeItem(ACTIVE_KEY)
+          if (fallback) localStorage.setItem(ACTIVE_SESSION_KEY, String(fallback))
+          else localStorage.removeItem(ACTIVE_SESSION_KEY)
         }
         return next
       })
@@ -141,7 +141,7 @@ export default function SessionManager({ open, onClose, onActiveChange }) {
 
   const handleSwitch = (id) => {
     setActiveId(id)
-    localStorage.setItem(ACTIVE_KEY, String(id))
+    localStorage.setItem(ACTIVE_SESSION_KEY, String(id))
   }
 
   return (
