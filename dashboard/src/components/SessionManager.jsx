@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { AGENT_NAMES, AGENT_EMOJI, UI_EMOJI } from '../constants/agents.js'
+import { useState, useEffect } from 'react'
+import { AGENT_NAMES, AGENT_EMOJI } from '../constants/agents.js'
 
 const emptyAgents = () => Object.fromEntries(AGENT_NAMES.map((n) => [n, null]))  // null = uninitialized, no dot
 
@@ -17,7 +17,7 @@ const MOCK_SESSIONS = [
 const SESSION_STATUS_CLASS = { ready: 'ready', failed: 'failed' }
 const SESSION_STATUS_LABEL = { ready: '✅', failed: '❌' }
 
-export default function SessionManager({ open, onClose }) {
+export default function SessionManager({ open, onClose, onActiveChange }) {
   const [sessions, setSessions] = useState(MOCK_SESSIONS)
   const [activeId, setActiveId] = useState('sess-001')
   const [newName, setNewName] = useState('')
@@ -25,6 +25,13 @@ export default function SessionManager({ open, onClose }) {
   const [menuId, setMenuId] = useState(null)  // which session menu is open
   const [renameId, setRenameId] = useState(null)  // which session is being renamed
   const [renameVal, setRenameVal] = useState('')
+
+  useEffect(() => {
+    if (!onActiveChange) return
+    const active = sessions.find((s) => s.id === activeId)
+    if (active) onActiveChange(active.name)
+  }, [activeId, sessions, onActiveChange])
+
   if (!open) return null
 
   const handleCreate = () => {
@@ -34,8 +41,11 @@ export default function SessionManager({ open, onClose }) {
   }
 
   const handleDelete = (id) => {
-    setSessions((prev) => prev.filter((s) => s.id !== id))
-    if (activeId === id) setActiveId(sessions.find((s) => s.id !== id)?.id || null)
+    setSessions((prev) => {
+      const next = prev.filter((s) => s.id !== id)
+      if (activeId === id) setActiveId(next[0]?.id ?? null)
+      return next
+    })
     setMenuId(null)
   }
 
@@ -56,7 +66,7 @@ export default function SessionManager({ open, onClose }) {
       <div className="bg-white rounded-2xl shadow-xl border border-gray-200 w-full max-w-lg mx-4 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h2 className="text-base font-semibold text-gray-800">Session Manager</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+          <button onClick={onClose} aria-label="Close session manager" className="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
         </div>
 
         {/* Session list */}
@@ -87,9 +97,9 @@ export default function SessionManager({ open, onClose }) {
                     </button>
                     {/* 3-dot menu */}
                     <div className="relative">
-                      <button onClick={() => setMenuId(menuId === s.id ? null : s.id)} className="text-gray-400 hover:text-gray-600 text-sm px-1 py-1 rounded hover:bg-gray-100 leading-none">···</button>
+                      <button onClick={(e) => { e.stopPropagation(); setMenuId(menuId === s.id ? null : s.id) }} className="text-gray-400 hover:text-gray-600 text-sm px-1 py-1 rounded hover:bg-gray-100 leading-none" aria-label="Session menu">···</button>
                       {menuId === s.id && (
-                        <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-30 py-1 min-w-[120px]">
+                        <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-30 py-1 min-w-[120px]" onMouseDown={(e) => e.stopPropagation()}>
                           <button onClick={() => handleRename(s.id)} className="w-full text-left px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50">Rename</button>
                           <button onClick={() => { navigator.clipboard?.writeText(s.directory); setMenuId(null) }} className="w-full text-left px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50">Copy Path</button>
                           <div className="border-t border-gray-100 my-1" />

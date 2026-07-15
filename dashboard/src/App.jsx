@@ -18,6 +18,7 @@ export default function App() {
   const [rightOpen, setRightOpen] = useState(true)
   const [rightTab, setRightTab] = useState('tasks')
   const [showSM, setShowSM] = useState(false)
+  const [sessionLabel, setSessionLabel] = useState('TeamChat develop')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const { messages: wsMessages, connectionStatus } = useWebSocket()
@@ -81,7 +82,7 @@ export default function App() {
         <div className="flex items-center gap-3">
           <span className="text-lg">{UI_EMOJI.robot}</span>
           <h1 className="text-base font-bold text-gray-800 tracking-tight">TeamChat</h1>
-          <button onClick={() => setShowSM(true)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg px-2.5 py-1.5 transition-colors ml-2">{UI_EMOJI.folder} TeamChat develop ▾</button>
+          <button onClick={() => setShowSM(true)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg px-2.5 py-1.5 transition-colors ml-2">{UI_EMOJI.folder} {sessionLabel} ▾</button>
           <span className="text-[10px] text-gray-400 font-mono hidden sm:inline">v0.1</span>
         </div>
         <div className="flex items-center gap-2">
@@ -116,7 +117,7 @@ export default function App() {
         </aside>
       </div>
 
-      <SessionManager open={showSM} onClose={() => setShowSM(false)} />
+      <SessionManager open={showSM} onClose={() => setShowSM(false)} onActiveChange={setSessionLabel} />
     </div>
   )
 }
