@@ -6,7 +6,7 @@
 
 | # | Bug | 状态 | 谁负责 |
 |---|---|---|---|
-| 1 | 前端显示 Unicode escape (`\U0001F3D7` 等) | 🔴 待修复 | coco咪/soso咪 联合排查 |
+| 1 | 前端显示 Unicode escape (`\U0001F3D7` 等) | ✅ Fixed (#25, #26, #27) | soso咪 + coco咪 |
 | 2 | 无 @mention 消息 cici咪 不回复 | 🔴 等 Worker 实现 | cici咪 |
 | 3 | Codex/Cursor 审批不可用 | 🟡 已知限制，接受 | — |
 
