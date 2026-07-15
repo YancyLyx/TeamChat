@@ -4,6 +4,7 @@ Run: python -m pytest tests/ -v
 """
 
 import json
+import sqlite3
 
 import pytest
 
@@ -223,17 +224,20 @@ class TestCodexEventParsing:
 
 
 class TestSessionStore:
-    """SQLite-backed session logging."""
+    """SQLite-backed agent call logging (unified teamchat.db)."""
 
     def test_init_and_log(self, tmp_path):
         from engine.config import Config
-        from engine.store import SessionStore
+        from engine.session_store import SessionStore as TeamChatSessionStore
+        from engine.store import AgentCallStore
 
         config = Config(
             repo_owner="test", repo_name="test", repo_url="https://github.com/test/test",
             project_root=tmp_path,
         )
-        store = SessionStore(config)
+        ss = TeamChatSessionStore(config)
+        ss.init()
+        store = AgentCallStore(config)
         store.init()
 
         row_id = store.log(
@@ -243,12 +247,15 @@ class TestSessionStore:
             exit_code=0,
             duration_ms=150,
             task_type="architecture",
+            teamchat_session_id=1,
         )
         assert row_id == 1
 
         row = store.get_by_id(1)
         assert row is not None
         assert row.agent_name == "cici咪"
+        assert row.teamchat_session_id == 1
+        assert row.tool_calls == []
         assert row.exit_code == 0
         assert row.success is True
 
@@ -257,6 +264,59 @@ class TestSessionStore:
         assert stats["total_success"] == 1
 
         store.close()
+        ss.close()
+
+
+class TestUnifiedDbSchema:
+    """ADR-003 §10 — unified teamchat.db tables, FK, indexes."""
+
+    def test_schema_has_fk_indexes_and_tool_calls(self, tmp_path):
+        from engine.config import Config
+        from engine.session_store import SessionStore as TeamChatSessionStore
+        from engine.store import AgentCallStore
+        from engine.task_table import TaskTable
+
+        config = Config(
+            repo_owner="test", repo_name="test", repo_url="https://github.com/test/test",
+            project_root=tmp_path,
+        )
+        ss = TeamChatSessionStore(config)
+        ss.init()
+        store = AgentCallStore(config)
+        store.init()
+        tt = TaskTable(config)
+        tt.init()
+
+        indexes = {
+            row[0] for row in store.conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND name IS NOT NULL"
+            ).fetchall()
+        }
+        for idx in (
+            "idx_ac_session", "idx_ac_agent", "idx_ac_tag",
+            "idx_task_session", "idx_task_status", "idx_task_agent",
+        ):
+            assert idx in indexes
+
+        with pytest.raises(sqlite3.IntegrityError):
+            store.log(
+                agent_name="cici咪", prompt="p", output="o",
+                exit_code=0, duration_ms=1, teamchat_session_id=9999,
+            )
+
+        call_id = store.log(
+            agent_name="coco咪", prompt="p", output="o", exit_code=0, duration_ms=1,
+            tool_calls=[{"name": "read_file", "status": "ok", "duration_ms": 12}],
+        )
+        row = store.get_by_id(call_id)
+        assert row.tool_calls[0]["name"] == "read_file"
+
+        task = tt.create("soso咪", "schema task", teamchat_session_id=1)
+        assert task.teamchat_session_id == 1
+
+        store.close()
+        tt.close()
+        ss.close()
 
 
 class TestTeamChatSessionStore:
@@ -311,13 +371,16 @@ class TestStoreTokenStats:
 
     def test_stats_aggregates_token_usage(self, tmp_path):
         from engine.config import Config
-        from engine.store import SessionStore
+        from engine.session_store import SessionStore as TeamChatSessionStore
+        from engine.store import AgentCallStore
 
         config = Config(
             repo_owner="test", repo_name="test", repo_url="https://github.com/test/test",
             project_root=tmp_path,
         )
-        store = SessionStore(config)
+        ss = TeamChatSessionStore(config)
+        ss.init()
+        store = AgentCallStore(config)
         store.init()
 
         store.log(
@@ -334,3 +397,4 @@ class TestStoreTokenStats:
         assert stats["token_usage"]["input_tokens"] == 30
         assert stats["token_usage"]["output_tokens"] == 15
         store.close()
+        ss.close()

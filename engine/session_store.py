@@ -79,6 +79,7 @@ class SessionStore:
         self.config.teamchat_dir.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.db_path))
         self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.executescript(SCHEMA)
         self._conn.commit()
         # Seed default session if database is empty

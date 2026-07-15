@@ -891,3 +891,110 @@ CREATE TABLE IF NOT EXISTS metrics (
 1. **任务完成速度**：同一个需求（如"加刷新按钮"），人肉 vs TeamChat 的端到端时间对比
 2. **人工操作次数**：统计人类审批和手动介入的次数变化
 3. **协作日志完整性**：GitHub Issues 关闭率（当前已经 10/10 ✅）
+
+
+---
+
+## 10. 数据库设计
+
+### 10.1 设计原则
+
+1. **单文件** — 所有表放在 `.teamchat/teamchat.db`，可以 JOIN，单连接
+2. **命名清晰** — `agent_calls`（每次 CLI 调用），`tasks`（编排任务），`teamchat_sessions`（前端会话）
+3. **FK 隔离** — 所有动态数据表带 `teamchat_session_id`，按会话过滤
+4. **JSON 字段** — `token_usage`、`depends_on`、`tool_calls` 用 JSON TEXT（不单独建表，避免过度设计）
+5. **外键约束** — `PRAGMA foreign_keys = ON`
+
+### 10.2 ER 关系
+
+```
+teamchat_sessions (1) ──< (N) agent_calls
+teamchat_sessions (1) ──< (N) tasks
+```
+
+### 10.3 表结构
+
+#### teamchat_sessions — 前端会话
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | INTEGER | PK AUTOINCREMENT | |
+| name | TEXT | NOT NULL | 会话名称 |
+| directory | TEXT | NOT NULL | 工作目录绝对路径 |
+| claude_id | TEXT | DEFAULT '' | Claude session ID |
+| codex_id | TEXT | DEFAULT '' | Codex thread_id |
+| cursor_id | TEXT | DEFAULT '' | Cursor session ID |
+| status | TEXT | DEFAULT 'active' | active / archived |
+| created_at | TEXT | NOT NULL | ISO timestamp |
+| updated_at | TEXT | NOT NULL | ISO timestamp |
+
+#### agent_calls — 每次 Engine 调用 agent 的日志
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | INTEGER | PK AUTOINCREMENT | |
+| teamchat_session_id | INTEGER | FK → teamchat_sessions.id, NOT NULL | 数据隔离 |
+| agent_name | TEXT | NOT NULL | cici咪 / coco咪 / soso咪 |
+| task_type | TEXT | DEFAULT 'general' | chat_greeting / chat_task / chat_message |
+| prompt | TEXT | NOT NULL | 发给 agent 的完整 prompt |
+| output | TEXT | DEFAULT '' | agent 返回的正文（已清理） |
+| exit_code | INTEGER | DEFAULT -1 | 0=成功，-1=超时 |
+| duration_ms | INTEGER | DEFAULT 0 | |
+| token_usage | TEXT | DEFAULT '{}' | JSON: {input_tokens, output_tokens} |
+| tool_calls | TEXT | DEFAULT '[]' | JSON: [{name, status, duration_ms}] |
+| tag | TEXT | DEFAULT 'prod' | prod / test |
+| started_at | TEXT | NOT NULL | ISO |
+| finished_at | TEXT | NOT NULL | ISO |
+| created_at | TEXT | DEFAULT (datetime('now')) | |
+
+**索引:** `teamchat_session_id`, `agent_name`, `tag`
+
+#### tasks — cici咪 编排的任务（粒度 = GitHub PR）
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | INTEGER | PK AUTOINCREMENT | |
+| teamchat_session_id | INTEGER | FK → teamchat_sessions.id, NOT NULL | 数据隔离 |
+| agent | TEXT | NOT NULL | 指派给 cici咪 / coco咪 / soso咪 |
+| title | TEXT | NOT NULL | 任务标题 |
+| description | TEXT | DEFAULT '' | |
+| status | TEXT | DEFAULT 'pending' | pending / running / done / failed / abandoned |
+| depends_on | TEXT | DEFAULT '[]' | JSON: [task_id, ...] |
+| github_issue | TEXT | DEFAULT '' | Issue URL |
+| github_pr | TEXT | DEFAULT '' | PR URL |
+| output_summary | TEXT | DEFAULT '' | agent 完成后的正文摘要 |
+| created_at | TEXT | DEFAULT (datetime('now')) | |
+| started_at | TEXT | DEFAULT '' | status→running 时写入 |
+| finished_at | TEXT | DEFAULT '' | status→done 时写入 |
+
+**索引:** `teamchat_session_id`, `agent`, `status`
+
+### 10.4 关键区分
+
+| 用户随便一句话 | Task |
+|---|---|
+| "大家好"、"hello" | ❌ 不算 task。只是触发 agent_calls 写一行 |
+| "@coco咪 加刷新按钮" | → cici咪 分析后 create_task → 写入 tasks 表 |
+| GitHub PR 级别的开发工作 | ✅ 对应 tasks 表的一行 |
+
+**agent_calls 记录所有 activity。tasks 只记录 cici咪 编排的工作单元。**
+
+### 10.5 支持评估指标 (ADR-003 §9)
+
+| 指标 | 表 | 查询 |
+|---|---|---|
+| Agent 完成数 | tasks | WHERE agent=? AND status='done' COUNT |
+| 成功率 | agent_calls | WHERE agent=? AVG(exit_code==0) |
+| 平均耗时 | agent_calls | WHERE agent=? AVG(duration_ms) |
+| Token 消耗 | agent_calls | SUM(JSON_EXTRACT(token_usage,'$.output_tokens')) |
+| 任务周转时间 | tasks | finished_at - created_at |
+| 审批次数 | agent_calls | WHERE tool_calls != '[]' COUNT |
+
+### 10.6 迁移路径
+
+当前代码有三个独立 db 文件。迁移步骤：
+1. 创建 `teamchat.db` 统一数据库
+2. 现有数据量小（开发阶段）→ 直接删除旧 db，重建
+3. 更新 engine/store.py engine/task_table.py engine/session_store.py 指向同一文件
+4. 加 `teamchat_session_id` 字段到 agent_calls 和 tasks
+5. 所有 INSERT 带当前会话 ID
