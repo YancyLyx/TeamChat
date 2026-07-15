@@ -677,46 +677,91 @@ cici咪 的表述可能变化——"交给coco咪" vs "这个coco咪来做" vs "
 | 附件 | 📎 按钮 → `<input type="file">` → 取绝对路径 |
 | Loading | 发送中显示 spinner，禁用输入 |
 
-#### E. 任务面板 (右侧栏，可折叠)
+#### E. 右侧面板 — Stats + Live 双 Tab
 
 ```
-┌─ Task Panel ──────────┐
-│ 📋 Tasks    [−] 折叠   │
-│                        │
-│ ── Pending (2) ──     │
-│ ┌──────────────────┐  │
-│ │ Refresh button    │  │
-│ │ → coco咪  #14     │  │
-│ └──────────────────┘  │
-│ ┌──────────────────┐  │
-│ │ Dark mode toggle  │  │
-│ │ → coco咪  #16     │  │
-│ └──────────────────┘  │
-│                        │
-│ ── Running (1) ──     │
-│ ┌──────────────────┐  │
-│ │ API cache layer   │  │
-│ │ → cici咪  #15 🔄  │  │
-│ └──────────────────┘  │
-│                        │
-│ ── Done (5) ──        │
-│ ┌──────────────────┐  │
-│ │ ChatRoom UI       │  │
-│ │ → coco咪  #12 ✅  │  │
-│ └──────────────────┘  │
-│ ··· (4 more)          │
-└────────────────────────┘
+┌─ Right Panel ────────────────────────────────────────┐
+│ [📊 Stats] [🔴 Live]                                 │  ← 顶层 Tab
+│                                                       │
+│ ── Stats Tab (选中时) ──────────────────────────     │
+│                                                       │
+│  [L1 效能] [L2 效率] [L3 解放]                          │  ← 子 Tab
+│                                                       │
+│  ── L1: Agent 效能 ──────────────────────────        │
+│                                                       │
+│  🏗️ cici咪                                            │
+│  5 tasks  ████████████████ 100%                        │
+│  avg 3.2s  ·  12K tokens  ·  2 tool calls              │
+│                                                       │
+│  ⚡ coco咪                                             │
+│  3 tasks  ██████████████░░ 95%                         │
+│  avg 8.1s  ·  8K tokens  ·  0 tool calls               │
+│                                                       │
+│  🔍 soso咪                                             │
+│  2 tasks  ████████████████ 100%                        │
+│  avg 4.5s  ·  5K tokens  ·  0 tool calls               │
+│                                                       │
+│  ── L2: 流程效率 ──────────────────────────           │
+│                                                       │
+│  Engine Mode: Parallel                                │
+│  Active: 🏗️ running ⚡ idle 🔍 idle                    │
+│  Queue: 0                                             │
+│  平均任务周期: 12 min                                   │
+│  平均等待时间: 2 min                                    │
+│  Review 周期:  3 min                                    │
+│                                                       │
+│  ── L3: 人类解放度 ──────────────────────────         │
+│                                                       │
+│  自动化率:   87%  ████████████████░░░                  │
+│  人工介入:   3 次                                       │
+│  消息→完成:  15 min                                     │
+│                                                       │
+│  ── 本周摘要 ────────────────────────────────          │
+│  Done: 10 · Success: 100% · Tokens: 25K                │
+│                                                       │
+│ ── Live Tab (选中时) ────────────────────────────     │
+│                                                       │
+│  ● Engine: Parallel                                   │
+│  ● Active Agents                                      │
+│    🏗️ cici咪 🔄 running (3.2s)                         │
+│    ⚡ coco咪  ✅ done                                   │
+│    🔍 soso咪  ⏳ waiting                               │
+│  ● Queue: 1 result waiting for cici咪                  │
+│  ● Recent Events                                      │
+│    💬 human "大家好"                       now         │
+│    ℹ️ 三只猫收到了问候                     now         │
+│    💬 coco咪 "大家好，我是..."              now         │
+│    ✅ cici咪 turn complete (7.8s)           now         │
+└───────────────────────────────────────────────────────┘
 ```
 
-**CompactTaskBoard 组件：**
+**StatsPanel 组件 (ADR-003 §9.2)：**
 
-| 列 | 过滤 | 默认状态 |
+| Tab | 内容 | 数据源 |
 |---|---|---|
-| Pending | `status=pending` | 展开 |
-| Running | `status=running` | 展开 |
-| Done | `status=done` | 折叠（只显示最近 5 条） |
+| L1 效能 | 每只咪: tasks 完成数 + 成功率（进度条）+ avg 耗时 + token 消耗 + tool calls 次数 | `/api/stats` |
+| L2 效率 | Engine Mode、Active Agents、Queue、任务周期/等待/Review 时间、阻塞数 | `/api/engine` + `/api/tasks/table/stats` |
+| L3 解放 | 自动化率（进度条）、人工介入次数、消息→完成时间 | 计算值 |
+| 底部 | 本周摘要: Done 数、成功率、总 Token | `/api/stats` 聚合 |
 
-**TaskCard 组件：** 标题 + agent + 状态图标 + GitHub Issue 链接（如有）
+**LivePanel 组件：** Engine 模式 + Active Agents (实时状态灯 + 耗时) + Queue 长度 + 最近 10 条事件流 (WebSocket 实时推送)
+
+**数据指标映射 (ADR-003 §9.2)：**
+
+| 层级 | 指标 | 计算 |
+|---|---|---|
+| L1 | 完成数 | `tasks WHERE agent=? AND status='done' COUNT` |
+| L1 | 成功率 | `agent_calls WHERE exit_code=0 / total` |
+| L1 | 平均耗时 | `agent_calls AVG(duration_ms)` |
+| L1 | Token 消耗 | `SUM(token_usage.output_tokens)` |
+| L1 | Tool calls | `WHERE tool_calls != '[]' COUNT` |
+| L2 | 任务周期 | `tasks AVG(finished_at - created_at)` |
+| L2 | 等待时间 | `tasks AVG(started_at - created_at)` |
+| L2 | Review 周期 | `tasks WHERE agent=soso咪 AVG(duration)` |
+| L2 | 阻塞数 | `tasks pending AND depends_on 未满足 COUNT` |
+| L3 | 自动化率 | `Engine自动 step / 总 step` |
+| L3 | 人工介入 | 审批次数 + 手动脚本操作 |
+| L3 | 消息→完成 | 人类消息时间 → 全部 task done |
 
 ### 8.4 会话管理弹窗
 
@@ -764,6 +809,8 @@ cici咪 的表述可能变化——"交给coco咪" vs "这个coco咪来做" vs "
 | 新建会话 | 点击 [Create] | 验证 → SQLite → 返回 → 下次消息冷启动 |
 | Agent 卡片展开 | 点击 AgentCard | 展开最近 5 条 sessions |
 | 任务面板折叠 | 点击 [−] | 整个面板收起，左侧聊天室变宽 |
+| Stats 切换 | 点击 [L1]/[L2]/[L3] | 子 Tab 切换评估层级 |
+| Live 切换 | 点击 [Live] | 查看 Engine 实时状态 + 事件流 |
 
 ### 8.6 状态管理
 
