@@ -13,6 +13,7 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
   const lastWcRef = useRef(0)
   const penRef = useRef(false)
   const seenIds = useRef(new Set())
+  const dedupTimestamps = useRef({})
 
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight }, [chatMessages])
 
@@ -76,6 +77,12 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
         const d = m.data || {}
         const mid = d.id || `c-${d.agent || 'unknown'}-${d.timestamp || ''}-${adds.length}-${Date.now()}`
         if (mid && seenIds.current.has(mid)) continue; if (mid) seenIds.current.add(mid)
+        const dedupKey = `${d.kind}|${d.agent}|${d.content}`
+        if (dedupKey) {
+          const lastSeen = dedupTimestamps.current[dedupKey] || 0
+          if (Date.now() - lastSeen < 3000) continue
+          dedupTimestamps.current[dedupKey] = Date.now()
+        }
         const km = { human: 'human', agent_reply: 'agent', agent_message: 'agent', system: 'system', approval: 'approval', thinking: 'thinking' }
         adds.push({ id: mid, kind: km[d.kind] || (d.agent === 'human' ? 'human' : 'agent'), agent: d.agent || 'system', content: d.content || '', timestamp: d.timestamp || new Date().toISOString(), thinking_sections: d.thinking_sections, tool_name: d.tool_name, tool_input: d.tool_input })
       } else if (m.type === 'connected') {
