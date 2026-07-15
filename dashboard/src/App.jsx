@@ -19,7 +19,11 @@ export default function App() {
   const [rightOpen, setRightOpen] = useState(true)
   const [rightTab, setRightTab] = useState('stats')
   const [showSM, setShowSM] = useState(false)
-  const [sessionLabel, setSessionLabel] = useState('TeamChat 开发')
+  const [sessionLabel, setSessionLabel] = useState('加载中...')
+  const [activeSessionId, setActiveSessionId] = useState(() => {
+    try { const v = localStorage.getItem('teamchat_active_session_id'); return v ? Number(v) : null }
+    catch { return null }
+  })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const { messages: wsMessages, connectionStatus } = useWebSocket()
@@ -63,6 +67,38 @@ export default function App() {
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  // Load the default/active session from the API on mount
+  useEffect(() => {
+    let cancelled = false
+    const loadDefaultSession = async () => {
+      try {
+        const res = await fetch('/api/session-manager')
+        if (!res.ok) throw new Error('')
+        const sessions = await res.json()
+        if (cancelled) return
+        const stored = localStorage.getItem('teamchat_active_session_id')
+        const storedId = stored ? Number(stored) : null
+        const active = sessions.find((s) => s.id === storedId) || sessions[0]
+        if (active) {
+          setSessionLabel(active.name)
+          setActiveSessionId(active.id)
+        } else {
+          setSessionLabel('默认工作区')
+        }
+      } catch {
+        if (!cancelled) setSessionLabel('默认工作区')
+      }
+    }
+    loadDefaultSession()
+    return () => { cancelled = true }
+  }, [])
+
+  const handleSessionChange = useCallback((name) => {
+    setSessionLabel(name)
+    const stored = localStorage.getItem('teamchat_active_session_id')
+    setActiveSessionId(stored ? Number(stored) : null)
+  }, [])
 
   useEffect(() => {
     if (wsMessages.length <= lastMcRef.current) return
@@ -116,7 +152,7 @@ export default function App() {
           {leftOpen && <div className="p-3 space-y-2"><h3 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider px-1 mb-2">Agents</h3>{loading ? [1,2,3].map(i => <div key={i} className="bg-gray-100 rounded-xl p-3 animate-pulse"><div className="h-3 bg-gray-200 rounded w-16 mb-2" /><div className="h-3 bg-gray-200 rounded w-24" /></div>) : agents.map(a => <AgentCard key={a.name} agent={a} sessions={agSessions[a.name] || []} />)}</div>}
         </aside>
         <main className="flex-1 flex flex-col overflow-hidden min-w-0">
-          <ChatRoom wsMessages={wsMessages} connectionStatus={connectionStatus} />
+          <ChatRoom wsMessages={wsMessages} connectionStatus={connectionStatus} sessionId={activeSessionId} />
         </main>
         <aside className={`flex-shrink-0 border-l border-gray-200 bg-white overflow-y-auto transition-all duration-200 ${rightOpen ? 'w-72' : 'w-0 overflow-hidden'}`}>
         {rightOpen && (
@@ -131,7 +167,7 @@ export default function App() {
         </aside>
       </div>
 
-      <SessionManager open={showSM} onClose={() => setShowSM(false)} onActiveChange={setSessionLabel} />
+      <SessionManager open={showSM} onClose={() => setShowSM(false)} onActiveChange={handleSessionChange} />
     </div>
   )
 }

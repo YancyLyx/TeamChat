@@ -2,11 +2,10 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import ChatMessage from './ChatMessage.jsx'
 import ChatInput from './ChatInput.jsx'
 import { WELCOME_MESSAGE } from '../constants/agents.js'
-import { getActiveSessionId } from '../constants/session.js'
 
 const API_BASE = '/api'
 
-export default function ChatRoom({ wsMessages, connectionStatus }) {
+export default function ChatRoom({ wsMessages, connectionStatus, sessionId }) {
   const [chatMessages, setChatMessages] = useState([])
   const [loading, setLoading] = useState(true)
   const [resolvedApprovals, setResolvedApprovals] = useState(() => new Set())
@@ -36,22 +35,15 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
   const fetchInit = useCallback(async () => {
     try {
       setLoading(true)
-      const sessionId = getActiveSessionId()
       const [agentsRes, sessionsRes] = await Promise.all([
         fetch(`${API_BASE}/agents`),
-        fetch(`${API_BASE}/sessions?limit=30&tag=prod&teamchat_session_id=${sessionId}`),
+        fetch(`${API_BASE}/sessions?limit=30&tag=prod`),
       ])
       if (!agentsRes.ok || !sessionsRes.ok) throw new Error('API request failed')
       const sessionsData = await sessionsRes.json()
       const initial = []
       initial.push({ id: 'welcome', kind: 'system', agent: 'system', content: WELCOME_MESSAGE, timestamp: new Date().toISOString() })
-      for (const s of [...sessionsData].reverse()) {
-        if (s.agent_name === 'human') {
-          const hid = `session-${s.id}-human`
-          seenIds.current.add(hid)
-          initial.push({ id: hid, kind: 'human', agent: 'human', content: s.prompt, timestamp: s.started_at })
-          continue
-        }
+      for (const s of sessionsData) {
         if (s.id) { seenIds.current.add(`session-${s.id}-prompt`); seenIds.current.add(`session-${s.id}-result`) }
         initial.push({ id: `session-${s.id}-prompt`, kind: 'task_event', agent: s.agent_name, content: s.prompt.slice(0, 80), type: 'task_started', timestamp: s.started_at })
         initial.push({ id: `session-${s.id}-result`, kind: 'agent', agent: s.agent_name, content: s.output.slice(0, 300), timestamp: s.finished_at })
@@ -66,19 +58,16 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
 
   const handleSend = useCallback(async (content) => {
     try {
-      const teamchat_session_id = getActiveSessionId()
-      const res = await fetch(`${API_BASE}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, teamchat_session_id }),
-      })
+      const body = { content }
+      if (sessionId != null) body.teamchat_session_id = sessionId
+      const res = await fetch(`${API_BASE}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || `HTTP ${res.status}`) }
       return await res.json()
     } catch (err) {
       setChatMessages(p => [...p, { id: `se-${Date.now()}`, kind: 'system', agent: 'system', content: `发送失败: ${err.message}`, timestamp: new Date().toISOString() }])
       throw err
     }
-  }, [])
+  }, [sessionId])
 
   useEffect(() => {
     if (wsMessages.length <= lastWcRef.current || penRef.current) return
