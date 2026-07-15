@@ -4,6 +4,7 @@ import AgentCard from './components/AgentCard.jsx'
 import ChatRoom from './components/ChatRoom.jsx'
 import CompactTaskBoard from './components/CompactTaskBoard.jsx'
 import SessionManager from './components/SessionManager.jsx'
+import StatsPanel from './components/StatsPanel.jsx'
 import { UI_EMOJI } from './constants/agents.js'
 
 const API_BASE = '/api'
@@ -15,6 +16,7 @@ export default function App() {
   const [agSessions, setAgSessions] = useState({})
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
+  const [rightTab, setRightTab] = useState('tasks')
   const [showSM, setShowSM] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -102,7 +104,15 @@ export default function App() {
           <ChatRoom wsMessages={wsMessages} connectionStatus={connectionStatus} />
         </main>
         <aside className={`flex-shrink-0 border-l border-gray-200 bg-white overflow-y-auto transition-all duration-200 ${rightOpen ? 'w-72' : 'w-0 overflow-hidden'}`}>
-          {rightOpen && <CompactTaskBoard tasks={tasks} />}
+          {rightOpen && (
+            <>
+              <div className="flex border-b border-gray-100">
+                <button onClick={() => setRightTab('tasks')} className={`flex-1 text-xs py-2 font-medium transition-colors ${rightTab === 'tasks' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'}`}>Tasks</button>
+                <button onClick={() => setRightTab('stats')} className={`flex-1 text-xs py-2 font-medium transition-colors ${rightTab === 'stats' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'}`}>Stats</button>
+              </div>
+              {rightTab === 'tasks' ? <CompactTaskBoard tasks={tasks} /> : <StatsPanel />}
+            </>
+          )}
         </aside>
       </div>
 

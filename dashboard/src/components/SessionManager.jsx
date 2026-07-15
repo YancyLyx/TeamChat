@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { AGENT_NAMES, AGENT_EMOJI, UI_EMOJI } from '../constants/agents.js'
 
-const emptyAgents = () => Object.fromEntries(AGENT_NAMES.map((n) => [n, 'pending']))
+const emptyAgents = () => Object.fromEntries(AGENT_NAMES.map((n) => [n, null]))  // null = uninitialized, no dot
 
 const MOCK_SESSIONS = [
   {
@@ -12,42 +12,43 @@ const MOCK_SESSIONS = [
     created: '2026-07-09',
     active: true,
   },
-  {
-    id: 'sess-002',
-    name: 'New experiment',
-    directory: '/Users/yanxinluo/Documents/experiment',
-    agents: emptyAgents(),
-    created: '2026-07-10',
-    active: false,
-  },
 ]
 
-const SESSION_STATUS_ICON = { ready: UI_EMOJI.check, pending: UI_EMOJI.hourglass, failed: UI_EMOJI.cross }
-const SESSION_STATUS_CLASS = { ready: 'ready', pending: 'pending', failed: 'failed' }
+const SESSION_STATUS_CLASS = { ready: 'ready', failed: 'failed' }
+const SESSION_STATUS_LABEL = { ready: '✅', failed: '❌' }
 
 export default function SessionManager({ open, onClose }) {
   const [sessions, setSessions] = useState(MOCK_SESSIONS)
   const [activeId, setActiveId] = useState('sess-001')
   const [newName, setNewName] = useState('')
   const [newDir, setNewDir] = useState('')
+  const [menuId, setMenuId] = useState(null)  // which session menu is open
+  const [renameId, setRenameId] = useState(null)  // which session is being renamed
+  const [renameVal, setRenameVal] = useState('')
   if (!open) return null
 
   const handleCreate = () => {
     if (!newName.trim() || !newDir.trim()) return
-    const id = `sess-${Date.now()}`
-    setSessions((prev) => [
-      ...prev,
-      {
-        id,
-        name: newName.trim(),
-        directory: newDir.trim(),
-        agents: emptyAgents(),
-        created: new Date().toISOString().slice(0, 10),
-        active: false,
-      },
-    ])
-    setNewName('')
-    setNewDir('')
+    setSessions((prev) => [...prev, { id: `sess-${Date.now()}`, name: newName.trim(), directory: newDir.trim(), agents: emptyAgents(), created: new Date().toISOString().slice(0, 10), active: false }])
+    setNewName(''); setNewDir('')
+  }
+
+  const handleDelete = (id) => {
+    setSessions((prev) => prev.filter((s) => s.id !== id))
+    if (activeId === id) setActiveId(sessions.find((s) => s.id !== id)?.id || null)
+    setMenuId(null)
+  }
+
+  const handleRename = (id) => {
+    const s = sessions.find((x) => x.id === id)
+    if (!s) return
+    setRenameId(id); setRenameVal(s.name); setMenuId(null)
+  }
+
+  const confirmRename = (id) => {
+    if (!renameVal.trim()) { setRenameId(null); return }
+    setSessions((prev) => prev.map((s) => s.id === id ? { ...s, name: renameVal.trim() } : s))
+    setRenameId(null)
   }
 
   return (
@@ -57,31 +58,63 @@ export default function SessionManager({ open, onClose }) {
           <h2 className="text-base font-semibold text-gray-800">Session Manager</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
         </div>
+
+        {/* Session list */}
         <div className="p-4 space-y-3">
           {sessions.map((s) => {
             const isActive = s.id === activeId
             return (
-              <div key={s.id} className={`border rounded-xl p-4 transition-all ${isActive ? 'border-blue-300 bg-blue-50/30' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
+              <div key={s.id} className={`border rounded-xl p-4 transition-all relative ${isActive ? 'border-blue-300 bg-blue-50/30' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
                 <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <span className={`inline-block w-3 h-3 rounded-full ${isActive ? 'bg-blue-500' : 'bg-gray-300'}`} />
-                    <div>
-                      <h3 className={`text-sm font-medium ${isActive ? 'text-blue-700' : 'text-gray-700'}`}>{s.name}</h3>
-                      <p className="text-xs text-gray-400 font-mono mt-0.5">{s.directory}</p>
-                    </div>
+                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                    <span className={`inline-block w-3 h-3 rounded-full flex-shrink-0 ${isActive ? 'bg-blue-500' : 'bg-gray-300'}`} />
+                    {renameId === s.id ? (
+                      <input value={renameVal} onChange={e => setRenameVal(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') confirmRename(s.id); if (e.key === 'Escape') setRenameId(null) }}
+                        onBlur={() => confirmRename(s.id)}
+                        className="text-sm font-medium text-gray-700 border border-blue-300 rounded px-1.5 py-0.5 outline-none w-full max-w-[200px]" autoFocus />
+                    ) : (
+                      <div className="min-w-0">
+                        <h3 className={`text-sm font-medium truncate ${isActive ? 'text-blue-700' : 'text-gray-700'}`}>{s.name}</h3>
+                        <p className="text-xs text-gray-400 font-mono truncate mt-0.5">{s.directory}</p>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => setActiveId(s.id)} className={`text-xs px-3 py-1 rounded-lg font-medium transition-colors ${isActive ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{isActive ? '✓ Current' : 'Switch'}</button>
-                    <button className="text-gray-400 hover:text-gray-600 text-sm px-1">···</button>
+                  <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                    <button onClick={() => setActiveId(s.id)}
+                      className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${isActive ? 'bg-blue-100 text-blue-700 cursor-default' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                      {isActive ? '✓' : 'Switch'}
+                    </button>
+                    {/* 3-dot menu */}
+                    <div className="relative">
+                      <button onClick={() => setMenuId(menuId === s.id ? null : s.id)} className="text-gray-400 hover:text-gray-600 text-sm px-1 py-1 rounded hover:bg-gray-100 leading-none">···</button>
+                      {menuId === s.id && (
+                        <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-30 py-1 min-w-[120px]">
+                          <button onClick={() => handleRename(s.id)} className="w-full text-left px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50">Rename</button>
+                          <button onClick={() => { navigator.clipboard?.writeText(s.directory); setMenuId(null) }} className="w-full text-left px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50">Copy Path</button>
+                          <div className="border-t border-gray-100 my-1" />
+                          <button onClick={() => handleDelete(s.id)} className="w-full text-left px-3 py-1.5 text-xs text-red-500 hover:bg-red-50">Delete</button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
+                {/* Agent status row — only show dots for initialized agents with status */}
                 <div className="mt-3 flex items-center gap-3 text-xs">
-                  {AGENT_NAMES.map((n) => (
-                    <div key={n} className="flex items-center gap-1">
-                      <span>{AGENT_EMOJI[n]}</span>
-                      <span title={SESSION_STATUS_ICON[s.agents[n]]} className={`session-dot ${SESSION_STATUS_CLASS[s.agents[n]]}`} />
-                    </div>
-                  ))}
+                  {AGENT_NAMES.map((n) => {
+                    const status = s.agents[n]
+                    const initialized = status === 'ready' || status === 'failed'
+                    return (
+                      <div key={n} className="flex items-center gap-1">
+                        <span>{AGENT_EMOJI[n]}</span>
+                        {initialized ? (
+                          <span className={`session-dot ${SESSION_STATUS_CLASS[status]}`} title={SESSION_STATUS_LABEL[status]} />
+                        ) : (
+                          <span className="text-gray-300 text-[10px] font-mono">--</span>
+                        )}
+                      </div>
+                    )
+                  })}
                   <span className="text-gray-300">|</span>
                   <span className="text-gray-400">{s.created}</span>
                 </div>
@@ -89,6 +122,8 @@ export default function SessionManager({ open, onClose }) {
             )
           })}
         </div>
+
+        {/* New Session Form */}
         <div className="border-t border-gray-100 p-4">
           <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">+ New Session</h3>
           <div className="space-y-2.5">
