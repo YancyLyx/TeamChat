@@ -24,9 +24,9 @@ export default function AgentCard({ agent, sessions = [], compact }) {
   const [expanded, setExpanded] = useState(false)
   const info = AGENT_INFO[agent.name] || { emoji: UI_EMOJI.fallback, border: 'border-gray-300', nameColor: 'text-gray-700', role: agent.role || '' }
   const card = AGENT_ROLE_CARDS[agent.name]
-  const statusClass = agent.is_busy ? 'busy' : 'idle'
-  const rate = (agent.success_rate * 100).toFixed(0)
-  const totalTasks = agent.total_tasks ?? agent.total_calls ?? 0
+  const realtimeStatus = agent.is_busy
+    ? { icon: <><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse inline-block" /> executing</>, color: 'text-red-500' }
+    : { icon: <><span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" /> idle</>, color: 'text-green-600' }
 
   if (compact) {
     return (
@@ -35,9 +35,8 @@ export default function AgentCard({ agent, sessions = [], compact }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
             <span className={`text-sm font-medium ${info.nameColor}`}>{agent.name}</span>
-            <span className={`status-dot ${statusClass}`} />
           </div>
-          <p className="text-xs text-gray-400">{totalTasks} tasks · {rate}%</p>
+          <p className={`text-xs ${realtimeStatus.color}`}>{realtimeStatus.icon}</p>
         </div>
       </div>
     )
@@ -50,18 +49,10 @@ export default function AgentCard({ agent, sessions = [], compact }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h3 className={`font-semibold text-sm ${info.nameColor}`}>{agent.name}</h3>
-            <span className={`status-dot ${statusClass}`} />
+            <span className={`text-xs ${realtimeStatus.color}`}>{realtimeStatus.icon}</span>
           </div>
           <p className="text-xs text-gray-400 mt-0.5">{info.role}</p>
         </div>
-      </div>
-      <div className="mt-3 flex items-center gap-3 text-xs">
-        <span className="text-gray-500"><strong className="text-gray-700">{totalTasks}</strong> tasks</span>
-        <span className="text-gray-300">|</span>
-        <span className={agent.success_rate >= 0.8 ? 'text-green-600' : 'text-yellow-600'}><strong>{rate}%</strong></span>
-      </div>
-      <div className="mt-1 text-xs text-gray-400">
-        avg {((agent.avg_duration_ms || 0) / 1000).toFixed(1)}s · {formatTokens(agent.total_tokens)} tokens
       </div>
 
       {/* Expanded: role card with personality + recent sessions */}

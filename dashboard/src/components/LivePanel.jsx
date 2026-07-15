@@ -1,7 +1,7 @@
 /* ADR-003 Section 9 — Engine runtime observability. */
 
 import { useEffect, useState } from 'react'
-import { AGENT_EMOJI, AGENT_NAMES, UI_EMOJI } from '../constants/agents.js'
+import { UI_EMOJI } from '../constants/agents.js'
 
 const API_BASE = '/api'
 
@@ -54,24 +54,9 @@ export default function LivePanel({ recentEvents = [] }) {
             {engine.queue_length > 0 && (
               <p className="text-[10px] text-gray-400 font-mono mt-1">queue: {engine.queue_length} waiting</p>
             )}
-          </div>
-
-          {/* Active agents */}
-          <div>
-            <p className="text-[10px] text-gray-400 font-semibold uppercase mb-1.5 px-0.5">Active Agents</p>
-            <div className="space-y-1">
-              {engine.active_agents.map((a) => (
-                <div key={a.name} className="flex items-center gap-2 px-2 py-1.5 bg-gray-50 rounded-lg text-xs">
-                  <span className="text-sm">{AGENT_EMOJI[a.name] || UI_EMOJI.fallback}</span>
-                  <span className="text-gray-700 font-medium flex-1">{a.name}</span>
-                  {a.is_busy ? (
-                    <span className="inline-flex items-center gap-1 text-[10px] text-red-500 font-mono"><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />executing</span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-[10px] text-green-600 font-mono"><span className="w-1.5 h-1.5 rounded-full bg-green-500" />idle</span>
-                  )}
-                </div>
-              ))}
-            </div>
+            {engine.queue_length === 0 && (
+              <p className="text-[10px] text-gray-400 font-mono mt-1">queue: 0</p>
+            )}
           </div>
 
           {/* Recent events */}
