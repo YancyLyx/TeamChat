@@ -543,37 +543,35 @@ cici咪 的表述可能变化——"交给coco咪" vs "这个coco咪来做" vs "
 │  ┌─ AgentCard ──────┐ │
 │  │ 🏗️  cici咪        │ │
 │  │    Architect      │ │
-│  │    🟢 idle        │ │
-│  │    5 tasks · 100% │ │
+│  │    🔄 executing   │ │  ← 实时执行状态，来自 /api/engine
+│  │       (3.2s)      │ │
 │  └──────────────────┘ │
 │                       │
 │  ┌─ AgentCard ──────┐ │
 │  │ ⚡  coco咪         │ │
 │  │    Developer      │ │
-│  │    🔴 busy        │ │
-│  │    3 tasks · 95%  │ │
+│  │    ✅ done         │ │
 │  └──────────────────┘ │
 │                       │
 │  ┌─ AgentCard ──────┐ │
 │  │ 🔍  soso咪         │ │
 │  │    QA             │ │
-│  │    🟢 idle        │ │
-│  │    2 tasks · 100% │ │
+│  │    ⏳ waiting      │ │
 │  └──────────────────┘ │
 │                       │
 └───────────────────────┘
 ```
 
-**AgentCard 组件：**
+**AgentCard 组件 (修订)：**
 
 | Prop | 说明 |
 |---|---|
 | `agent.name` | 名字 + emoji |
 | `agent.role` | 角色（小字灰色） |
-| `agent.status` | `idle` 🟢 / `busy` 🔴 / `offline` ⚪，状态灯呼吸动画 |
-| `agent.total_tasks` | 总任务数 |
-| `agent.success_rate` | 成功率（百分比） |
-| onClick → 展开 | 最近 5 条会话记录（sessions API） |
+| `agent.real_time_status` | `idle` 🟢 / `executing` 🔄 (带耗时) / `done` ✅ / `waiting` ⏳ — 来自 `/api/engine` |
+| onClick → 展开 | CLI + 性格 + 专长（角色卡）|
+
+> 💡 删除原来的 `total_tasks / success_rate / avg_duration / tokens` — 这些数据在右侧 Stats Tab 展示，不重复。
 
 **样式：** `bg-white border border-gray-200 rounded-xl p-3 shadow-sm`
 
@@ -722,11 +720,7 @@ cici咪 的表述可能变化——"交给coco咪" vs "这个coco咪来做" vs "
 │ ── Live Tab (选中时) ────────────────────────────     │
 │                                                       │
 │  ● Engine: Parallel                                   │
-│  ● Active Agents                                      │
-│    🏗️ cici咪 🔄 running (3.2s)                         │
-│    ⚡ coco咪  ✅ done                                   │
-│    🔍 soso咪  ⏳ waiting                               │
-│  ● Queue: 1 result waiting for cici咪                  │
+│  ● Queue: 0                                           │
 │  ● Recent Events                                      │
 │    💬 human "大家好"                       now         │
 │    ℹ️ 三只猫收到了问候                     now         │
@@ -735,14 +729,14 @@ cici咪 的表述可能变化——"交给coco咪" vs "这个coco咪来做" vs "
 └───────────────────────────────────────────────────────┘
 ```
 
-**StatsPanel 组件 (ADR-003 §9.2)：**
+**StatsPanel 组件 (ADR-003 §9.2)：**  🔴 待实现
 
-| Tab | 内容 | 数据源 |
-|---|---|---|
-| L1 效能 | 每只咪: tasks 完成数 + 成功率（进度条）+ avg 耗时 + token 消耗 + tool calls 次数 | `/api/stats` |
-| L2 效率 | Engine Mode、Active Agents、Queue、任务周期/等待/Review 时间、阻塞数 | `/api/engine` + `/api/tasks/table/stats` |
-| L3 解放 | 自动化率（进度条）、人工介入次数、消息→完成时间 | 计算值 |
-| 底部 | 本周摘要: Done 数、成功率、总 Token | `/api/stats` 聚合 |
+| Tab | 内容 | 数据源 | 状态 |
+|---|---|---|---|
+| L1 效能 | 每只咪: tasks 完成数 + 成功率（进度条）+ avg 耗时 + token 消耗 + tool calls 次数 | `/api/stats` | 🔴 |
+| L2 效率 | Engine Mode、Queue、任务周期/等待/Review 时间、阻塞数 | `/api/engine` + `/api/tasks/table/stats` | 🔴 |
+| L3 解放 | 自动化率（进度条）、人工介入次数、消息→完成时间 | 计算值 | 🔴 |
+| 底部 | 本周摘要: Done 数、成功率、总 Token | `/api/stats` 聚合 | 🔴 |
 
 **LivePanel 组件：** Engine 模式 + Active Agents (实时状态灯 + 耗时) + Queue 长度 + 最近 10 条事件流 (WebSocket 实时推送)
 
