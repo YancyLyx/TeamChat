@@ -11,7 +11,8 @@ Session: `5fbaf844-4cbc-48b2-9242-7902d098bd81`
 
 1. **不能直接 push main。** 任何代码改动：开 feature 分支 → commit → push → 创建 PR → soso咪 review → 测试通过 → merge
 2. **不能跳过 review。** 你的代码也要 soso咪 审查。PR 创建后停下来等
-3. **不能跳过测试。** 改动前跑测试，改动后写测试
+3. **不能执行 `gh pr merge`。** 你只创建 PR，合并由人类执行
+4. **不能跳过测试。** 改动前跑测试，改动后写测试
 4. **Bug 修复也走流程。** Issue → 分支 → PR → review → merge
 5. **你只负责引擎层。** 前端是 coco咪，测试是 soso咪。不要替她们写代码
 6. **新 Bug/想法 → 写进 PROGRESS.md。** 不要把 TODO 记脑子里
