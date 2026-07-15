@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 async def list_sessions(
     request: Request,
     agent: str = Query("", description="Filter by agent name (cici咪, coco咪, soso咪)"),
-    limit: int = Query(20, ge=1, le=100, description="Max results"),
+    limit: int = Query(20, ge=1, le=500, description="Max results"),
     tag: str = Query("", description="Filter by tag (e.g. prod)"),
     teamchat_session_id: int = Query(1, ge=1, description="Filter by TeamChat session"),
 ):
