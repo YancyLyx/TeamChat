@@ -100,11 +100,13 @@ class Config:
         return os.getenv(agent.token_env)
 
     def get_cli_path(self, agent: AgentIdentity) -> str:
-        """Get CLI path, falling back to auto-detection."""
+        """Get CLI path, falling back to known binary names."""
         env_path = os.getenv(agent.cli_path_env)
         if env_path:
             return env_path
-        return agent.cli  # fallback: rely on PATH
+        # Map CLI identifiers to actual binary names
+        binary_map = {"claude": "claude", "codex": "codex", "cursor": "agent"}
+        return binary_map.get(agent.cli, agent.cli)
 
     def get_cli_command(self, agent: AgentIdentity, prompt: str,
                          use_continue: bool = False,
@@ -117,7 +119,7 @@ class Config:
         cli_path = self.get_cli_path(agent)
         if session_id:
             if agent.cli == "claude":
-                return [cli_path, "--print", "--output-format", "json",
+                return [cli_path, "--print", "--output-format", "stream-json",
                         "--resume", session_id, prompt]
             if agent.cli == "codex":
                 return [cli_path, "exec", "resume", session_id, "--json", prompt]
