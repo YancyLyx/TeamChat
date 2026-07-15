@@ -5,6 +5,7 @@ Uses engine.message_parser for @mention extraction (no duplicated regex).
 Unaddressed messages go to cici咪 for analysis per spec.
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -57,15 +58,28 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
 
     if is_greeting:
         runner = request.app.state.runner
+        store = request.app.state.store
+        greeting_msg = f"人类在聊天室发了 '{content}'。请简短回复一句问候/自我介绍（一句话即可），让人知道你在。"
+
+        # Broadcast "analyzing" notification
         await ws_mgr.broadcast({
             "type": "system_message",
             "data": {"content": "三只猫收到了你的问候，正在回复...", "timestamp": now},
         })
 
-        greeting_msg = f"人类在聊天室发了 '{content}'。请简短回复一句问候/自我介绍（一句话即可），让人知道你在。"
-        for agent in (AGENT_CICI, AGENT_COCO, AGENT_SOSO):
+        # Parallel: all three agents reply concurrently
+        async def greet_one(agent):
             task = AgentTask(prompt=greeting_msg, timeout_seconds=60)
             result = await runner.run(agent, task)
+            # Log to store
+            store.log(
+                agent_name=agent.name, prompt=task.full_prompt(),
+                output=result.output, exit_code=result.exit_code,
+                duration_ms=result.duration_ms, token_usage=result.token_usage,
+                task_type="chat_greeting", tag="prod",
+                started_at=result.started_at, finished_at=result.finished_at,
+            )
+            # Broadcast as soon as this agent replies
             await ws_mgr.broadcast({
                 "type": "chat_message",
                 "data": {
@@ -75,6 +89,12 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
                     "timestamp": now,
                 },
             })
+
+        await asyncio.gather(
+            greet_one(AGENT_CICI),
+            greet_one(AGENT_COCO),
+            greet_one(AGENT_SOSO),
+        )
 
         return ChatResponse(target_agent="all", task_prompt=content, status="greeting_broadcast")
 
