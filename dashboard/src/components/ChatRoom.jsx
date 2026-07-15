@@ -5,7 +5,7 @@ import { WELCOME_MESSAGE } from '../constants/agents.js'
 
 const API_BASE = '/api'
 
-export default function ChatRoom({ wsMessages, connectionStatus }) {
+export default function ChatRoom({ wsMessages, connectionStatus, sessionId }) {
   const [chatMessages, setChatMessages] = useState([])
   const [loading, setLoading] = useState(true)
   const [resolvedApprovals, setResolvedApprovals] = useState(() => new Set())
@@ -58,14 +58,16 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
 
   const handleSend = useCallback(async (content) => {
     try {
-      const res = await fetch(`${API_BASE}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) })
+      const body = { content }
+      if (sessionId != null) body.teamchat_session_id = sessionId
+      const res = await fetch(`${API_BASE}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || `HTTP ${res.status}`) }
       return await res.json()
     } catch (err) {
       setChatMessages(p => [...p, { id: `se-${Date.now()}`, kind: 'system', agent: 'system', content: `发送失败: ${err.message}`, timestamp: new Date().toISOString() }])
       throw err
     }
-  }, [])
+  }, [sessionId])
 
   useEffect(() => {
     if (wsMessages.length <= lastWcRef.current || penRef.current) return
