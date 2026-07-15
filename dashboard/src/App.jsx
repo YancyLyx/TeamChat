@@ -28,7 +28,8 @@ export default function App() {
   const [error, setError] = useState(null)
   const { messages: wsMessages, connectionStatus } = useWebSocket()
   const lastMcRef = useRef(0)
-  const [liveEvents, setLiveEvents] = useState([])
+ const [liveEvents, setLiveEvents] = useState([])
+  const liveEventsDedup = useRef(new Map())
   const [agentMetrics, setAgentMetrics] = useState({})
 
   const fetchData = useCallback(async () => {
@@ -118,8 +119,15 @@ export default function App() {
         }
       }
       if (m.type === 'task_complete') { const d = m.data || {}; setTasks(p => { const si = d.session_id ? `session-${d.session_id}` : null; let mt = false; return p.map(t => { if (mt) return t; if (si && t.id === si) { mt = true; return { ...t, status: d.success ? 'done' : 'failed', exit_code: d.success ? 0 : 1, duration_ms: d.duration_ms, preview: d.output_preview } } if (!si && t.agent === d.agent && t.status === 'running') { mt = true; return { ...t, status: d.success ? 'done' : 'failed', exit_code: d.success ? 0 : 1, duration_ms: d.duration_ms, preview: d.output_preview } } return t }) }); setAgents(p => p.map(a => a.name === d.agent ? { ...a, is_busy: false } : a)) }
-    // Track live events for the Live Panel
-    if (m.type !== 'pong' && m.type !== 'connected') {
+   // Track live events for the Live Panel
+   if (m.type !== 'pong' && m.type !== 'connected') {
+      const eventKey = `${m.type}|${m.data?.agent || m.data?.from || ''}|${m.data?.content || m.data?.prompt || m.data?.output_preview || ''}`.slice(0, 200)
+      const now = Date.now()
+      if (liveEventsDedup.current.has(eventKey) && now - liveEventsDedup.current.get(eventKey) < 3000) continue
+      liveEventsDedup.current.set(eventKey, now)
+      if (liveEventsDedup.current.size > 200) {
+        liveEventsDedup.current = new Map([...liveEventsDedup.current.entries()].slice(-100))
+      }
       setLiveEvents((prev) => [...prev.slice(-19), m])
     }
     }
