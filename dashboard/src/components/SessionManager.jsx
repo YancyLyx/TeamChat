@@ -1,30 +1,64 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { AGENT_NAMES, AGENT_EMOJI } from '../constants/agents.js'
 
-const emptyAgents = () => Object.fromEntries(AGENT_NAMES.map((n) => [n, null]))  // null = uninitialized, no dot
+const API_BASE = '/api/session-manager'
+const ACTIVE_KEY = 'teamchat_active_session_id'
 
-const MOCK_SESSIONS = [
-  {
-    id: 'sess-001',
-    name: 'TeamChat develop',
-    directory: '/Users/yanxinluo/Documents/PycharmProjects/TeamChat',
-    agents: { 'cici咪': 'ready', 'coco咪': 'ready', 'soso咪': 'ready' },
-    created: '2026-07-09',
-    active: true,
-  },
-]
+const emptyAgents = () => Object.fromEntries(AGENT_NAMES.map((n) => [n, null]))
 
 const SESSION_STATUS_CLASS = { ready: 'ready', failed: 'failed' }
 const SESSION_STATUS_LABEL = { ready: '✅', failed: '❌' }
 
+function apiToUi(row) {
+  const agents = emptyAgents()
+  if (row.claude_id) agents['cici咪'] = 'ready'
+  if (row.codex_id) agents['coco咪'] = 'ready'
+  if (row.cursor_id) agents['soso咪'] = 'ready'
+  return {
+    id: row.id,
+    name: row.name,
+    directory: row.directory,
+    agents,
+    created: (row.created_at || '').slice(0, 10),
+    active: false,
+  }
+}
+
 export default function SessionManager({ open, onClose, onActiveChange }) {
-  const [sessions, setSessions] = useState(MOCK_SESSIONS)
-  const [activeId, setActiveId] = useState('sess-001')
+  const [sessions, setSessions] = useState([])
+  const [activeId, setActiveId] = useState(null)
   const [newName, setNewName] = useState('')
   const [newDir, setNewDir] = useState('')
-  const [menuId, setMenuId] = useState(null)  // which session menu is open
-  const [renameId, setRenameId] = useState(null)  // which session is being renamed
+  const [menuId, setMenuId] = useState(null)
+  const [renameId, setRenameId] = useState(null)
   const [renameVal, setRenameVal] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  const loadSessions = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(API_BASE)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const rows = await res.json()
+      const mapped = rows.map(apiToUi)
+      setSessions(mapped)
+      const stored = localStorage.getItem(ACTIVE_KEY)
+      const storedId = stored ? Number(stored) : null
+      const active = mapped.find((s) => s.id === storedId) || mapped[0] || null
+      setActiveId(active?.id ?? null)
+      if (active && onActiveChange) onActiveChange(active.name)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [onActiveChange])
+
+  useEffect(() => {
+    if (open) loadSessions()
+  }, [open, loadSessions])
 
   useEffect(() => {
     if (!onActiveChange) return
@@ -34,31 +68,80 @@ export default function SessionManager({ open, onClose, onActiveChange }) {
 
   if (!open) return null
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!newName.trim() || !newDir.trim()) return
-    setSessions((prev) => [...prev, { id: `sess-${Date.now()}`, name: newName.trim(), directory: newDir.trim(), agents: emptyAgents(), created: new Date().toISOString().slice(0, 10), active: false }])
-    setNewName(''); setNewDir('')
+    setError(null)
+    try {
+      const res = await fetch(API_BASE, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName.trim(), directory: newDir.trim() }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.detail || `HTTP ${res.status}`)
+      }
+      const created = apiToUi(await res.json())
+      setSessions((prev) => [...prev, created])
+      setActiveId(created.id)
+      localStorage.setItem(ACTIVE_KEY, String(created.id))
+      setNewName('')
+      setNewDir('')
+    } catch (err) {
+      setError(err.message)
+    }
   }
 
-  const handleDelete = (id) => {
-    setSessions((prev) => {
-      const next = prev.filter((s) => s.id !== id)
-      if (activeId === id) setActiveId(next[0]?.id ?? null)
-      return next
-    })
-    setMenuId(null)
+  const handleDelete = async (id) => {
+    setError(null)
+    try {
+      const res = await fetch(`${API_BASE}/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      setSessions((prev) => {
+        const next = prev.filter((s) => s.id !== id)
+        if (activeId === id) {
+          const fallback = next[0]?.id ?? null
+          setActiveId(fallback)
+          if (fallback) localStorage.setItem(ACTIVE_KEY, String(fallback))
+          else localStorage.removeItem(ACTIVE_KEY)
+        }
+        return next
+      })
+      setMenuId(null)
+    } catch (err) {
+      setError(err.message)
+    }
   }
 
   const handleRename = (id) => {
     const s = sessions.find((x) => x.id === id)
     if (!s) return
-    setRenameId(id); setRenameVal(s.name); setMenuId(null)
+    setRenameId(id)
+    setRenameVal(s.name)
+    setMenuId(null)
   }
 
-  const confirmRename = (id) => {
+  const confirmRename = async (id) => {
     if (!renameVal.trim()) { setRenameId(null); return }
-    setSessions((prev) => prev.map((s) => s.id === id ? { ...s, name: renameVal.trim() } : s))
-    setRenameId(null)
+    setError(null)
+    try {
+      const res = await fetch(`${API_BASE}/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: renameVal.trim() }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const updated = apiToUi(await res.json())
+      setSessions((prev) => prev.map((s) => s.id === id ? updated : s))
+      setRenameId(null)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleSwitch = (id) => {
+    setActiveId(id)
+    localStorage.setItem(ACTIVE_KEY, String(id))
   }
 
   return (
@@ -69,8 +152,17 @@ export default function SessionManager({ open, onClose, onActiveChange }) {
           <button onClick={onClose} aria-label="Close session manager" className="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
         </div>
 
-        {/* Session list */}
+        {error && (
+          <div className="mx-4 mt-3 px-3 py-2 text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg">{error}</div>
+        )}
+
         <div className="p-4 space-y-3">
+          {loading && sessions.length === 0 && (
+            <p className="text-xs text-gray-400 text-center py-4">Loading sessions...</p>
+          )}
+          {!loading && sessions.length === 0 && (
+            <p className="text-xs text-gray-400 text-center py-4">No sessions yet — create one below.</p>
+          )}
           {sessions.map((s) => {
             const isActive = s.id === activeId
             return (
@@ -91,11 +183,10 @@ export default function SessionManager({ open, onClose, onActiveChange }) {
                     )}
                   </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
-                    <button onClick={() => setActiveId(s.id)}
+                    <button onClick={() => handleSwitch(s.id)}
                       className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${isActive ? 'bg-blue-100 text-blue-700 cursor-default' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                       {isActive ? '✓' : 'Switch'}
                     </button>
-                    {/* 3-dot menu */}
                     <div className="relative">
                       <button onClick={(e) => { e.stopPropagation(); setMenuId(menuId === s.id ? null : s.id) }} className="text-gray-400 hover:text-gray-600 text-sm px-1 py-1 rounded hover:bg-gray-100 leading-none" aria-label="Session menu">···</button>
                       {menuId === s.id && (
@@ -109,7 +200,6 @@ export default function SessionManager({ open, onClose, onActiveChange }) {
                     </div>
                   </div>
                 </div>
-                {/* Agent status row — only show dots for initialized agents with status */}
                 <div className="mt-3 flex items-center gap-3 text-xs">
                   {AGENT_NAMES.map((n) => {
                     const status = s.agents[n]
@@ -133,7 +223,6 @@ export default function SessionManager({ open, onClose, onActiveChange }) {
           })}
         </div>
 
-        {/* New Session Form */}
         <div className="border-t border-gray-100 p-4">
           <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">+ New Session</h3>
           <div className="space-y-2.5">

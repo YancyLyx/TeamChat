@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useWebSocket } from './hooks/useWebSocket.js'
 import AgentCard from './components/AgentCard.jsx'
 import ChatRoom from './components/ChatRoom.jsx'
-import CompactTaskBoard from './components/CompactTaskBoard.jsx'
 import SessionManager from './components/SessionManager.jsx'
 import StatsPanel from './components/StatsPanel.jsx'
+import LivePanel from './components/LivePanel.jsx'
 import { UI_EMOJI } from './constants/agents.js'
 import { normalizeAgentMetrics } from './utils/metrics.js'
 
@@ -18,13 +18,14 @@ export default function App() {
   const [agentMetrics, setAgentMetrics] = useState({})
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
-  const [rightTab, setRightTab] = useState('tasks')
+  const [rightTab, setRightTab] = useState('stats')
   const [showSM, setShowSM] = useState(false)
   const [sessionLabel, setSessionLabel] = useState('TeamChat develop')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const { messages: wsMessages, connectionStatus } = useWebSocket()
   const lastMcRef = useRef(0)
+  const [liveEvents, setLiveEvents] = useState([])
 
   const fetchData = useCallback(async () => {
     try {
@@ -75,7 +76,24 @@ export default function App() {
           })
         }
       }
-      if (m.type === 'task_complete') { const d = m.data || {}; setTasks(p => { const si = d.session_id ? `session-${d.session_id}` : null; let mt = false; return p.map(t => { if (mt) return t; if (si && t.id === si) { mt = true; return { ...t, status: d.success ? 'done' : 'failed', exit_code: d.success ? 0 : 1, duration_ms: d.duration_ms, preview: d.output_preview } } if (!si && t.agent === d.agent && t.status === 'running') { mt = true; return { ...t, status: d.success ? 'done' : 'failed', exit_code: d.success ? 0 : 1, duration_ms: d.duration_ms, preview: d.output_preview } } return t }) }); setAgents(p => p.map(a => a.name === d.agent ? { ...a, is_busy: false } : a)); fetchData() }
+      if (m.type === 'task_complete') {
+        const d = m.data || {}
+        setTasks(p => {
+          const si = d.session_id ? `session-${d.session_id}` : null
+          let mt = false
+          return p.map(t => {
+            if (mt) return t
+            if (si && t.id === si) { mt = true; return { ...t, status: d.success ? 'done' : 'failed', exit_code: d.success ? 0 : 1, duration_ms: d.duration_ms, preview: d.output_preview } }
+            if (!si && t.agent === d.agent && t.status === 'running') { mt = true; return { ...t, status: d.success ? 'done' : 'failed', exit_code: d.success ? 0 : 1, duration_ms: d.duration_ms, preview: d.output_preview } }
+            return t
+          })
+        })
+        setAgents(p => p.map(a => a.name === d.agent ? { ...a, is_busy: false } : a))
+        fetchData()
+      }
+      if (m.type !== 'pong' && m.type !== 'connected') {
+        setLiveEvents((prev) => [...prev.slice(-19), m])
+      }
     }
   }, [wsMessages, fetchData])
 
@@ -112,10 +130,10 @@ export default function App() {
           {rightOpen && (
             <>
               <div className="flex border-b border-gray-100">
-                <button onClick={() => setRightTab('tasks')} className={`flex-1 text-xs py-2 font-medium transition-colors ${rightTab === 'tasks' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'}`}>Tasks</button>
                 <button onClick={() => setRightTab('stats')} className={`flex-1 text-xs py-2 font-medium transition-colors ${rightTab === 'stats' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'}`}>Stats</button>
+                <button onClick={() => setRightTab('live')} className={`flex-1 text-xs py-2 font-medium transition-colors ${rightTab === 'live' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'}`}>Live</button>
               </div>
-              {rightTab === 'tasks' ? <CompactTaskBoard tasks={tasks} /> : <StatsPanel agentMetrics={agentMetrics} />}
+              {rightTab === 'stats' ? <StatsPanel agentMetrics={agentMetrics} /> : <LivePanel recentEvents={liveEvents} />}
             </>
           )}
         </aside>

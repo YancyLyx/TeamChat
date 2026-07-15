@@ -198,6 +198,32 @@ async def stats(request: Request):
     return {"agents": agents}
 
 
+@app.get("/api/engine")
+async def engine_status(request: Request):
+    """Engine runtime observability for the Live Panel (ADR-003 §9)."""
+    router = request.app.state.router
+    orchestrator = request.app.state.orchestrator
+    from engine.config import ALL_AGENTS
+
+    active_agents = [
+        {"name": a.name, "is_busy": router.is_busy(a)}
+        for a in ALL_AGENTS
+    ]
+
+    queue_length = 0
+    if hasattr(orchestrator, "_queue"):
+        queue_length = len(orchestrator._queue)
+
+    # Default mode: parallel. Orchestrator can toggle when cici咪 is busy.
+    mode = "serial" if orchestrator.is_cici_busy() else "parallel"
+
+    return {
+        "mode": mode,
+        "active_agents": active_agents,
+        "queue_length": queue_length,
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     logging.basicConfig(level=logging.INFO)

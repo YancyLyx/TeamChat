@@ -161,7 +161,8 @@ class SessionStore:
         ).fetchone()[0]
 
         success = self.conn.execute(
-            f"SELECT COUNT(*) FROM sessions {where} AND exit_code = 0", params
+            f"SELECT COUNT(*) FROM sessions {'WHERE agent_name = ? AND exit_code = 0' if agent_name else 'WHERE exit_code = 0'}",
+            params,
         ).fetchone()[0] if total > 0 else 0
 
         avg_dur = self.conn.execute(

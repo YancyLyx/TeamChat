@@ -257,3 +257,62 @@ class TestSessionStore:
         assert stats["total_success"] == 1
 
         store.close()
+
+
+class TestTeamChatSessionStore:
+    """Project-level session persistence (PR #40)."""
+
+    def test_create_list_delete(self, tmp_path):
+        from engine.config import Config
+        from engine.session_store import SessionStore
+
+        config = Config(
+            repo_owner="test", repo_name="test", repo_url="https://github.com/test/test",
+            project_root=tmp_path,
+        )
+        store = SessionStore(config)
+        store.init()
+
+        created = store.create("Dev Session", str(tmp_path))
+        assert created.id == 1
+        assert created.name == "Dev Session"
+
+        listed = store.list_all()
+        assert len(listed) == 1
+
+        store.update(1, name="Renamed")
+        assert store.get(1).name == "Renamed"
+
+        store.delete(1)
+        assert store.count() == 0
+        store.close()
+
+
+class TestStoreTokenStats:
+    """Token aggregation in SessionStore.stats (PR #40)."""
+
+    def test_stats_aggregates_token_usage(self, tmp_path):
+        from engine.config import Config
+        from engine.store import SessionStore
+
+        config = Config(
+            repo_owner="test", repo_name="test", repo_url="https://github.com/test/test",
+            project_root=tmp_path,
+        )
+        store = SessionStore(config)
+        store.init()
+
+        store.log(
+            agent_name="coco咪", prompt="p1", output="o1", exit_code=0, duration_ms=100,
+            token_usage={"input_tokens": 10, "output_tokens": 5},
+        )
+        store.log(
+            agent_name="coco咪", prompt="p2", output="o2", exit_code=0, duration_ms=100,
+            token_usage={"input_tokens": 20, "output_tokens": 10},
+        )
+
+        stats = store.stats(agent_name="coco咪")
+        assert stats["total_tokens"] == 45
+        assert stats["token_usage"]["input_tokens"] == 30
+        assert stats["token_usage"]["output_tokens"] == 15
+        store.close()
