@@ -107,6 +107,7 @@ def seed_session(
     prompt: str,
     output: str,
     tag: str = "prod",
+    token_usage: dict | None = None,
 ) -> int:
     """Insert a session row on the API event loop (for tag-filter E2E tests)."""
     result_holder: dict[str, int] = {}
@@ -120,6 +121,7 @@ def seed_session(
             duration_ms=100,
             task_type="e2e_seed",
             tag=tag,
+            token_usage=token_usage,
         )
 
     app.state.loop.call_soon_threadsafe(_write)

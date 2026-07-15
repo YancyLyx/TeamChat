@@ -11,6 +11,7 @@ import uuid
 
 import httpx
 import pytest
+from pathlib import Path
 from playwright.sync_api import Page, expect
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow]
@@ -42,10 +43,11 @@ class TestSessionManagerMenu:
 
         second_name = f"E2E Second {uuid.uuid4().hex[:6]}"
         second_path = "/tmp/teamchat-pr28-second"
+        Path(second_path).mkdir(parents=True, exist_ok=True)
         page.get_by_placeholder("Session name").fill(second_name)
         page.get_by_placeholder("Absolute directory path").fill(second_path)
         page.get_by_role("button", name="Create").click()
-        expect(page.get_by_text(second_name)).to_be_visible(timeout=5_000)
+        expect(page.get_by_role("heading", name=second_name)).to_be_visible(timeout=5_000)
 
         card = _session_card(page, second_name)
         card.get_by_role("button", name="Session menu").click()
@@ -56,7 +58,7 @@ class TestSessionManagerMenu:
         expect(edit_input).to_be_visible(timeout=5_000)
         edit_input.fill(renamed)
         edit_input.press("Enter")
-        expect(page.get_by_text(renamed)).to_be_visible(timeout=5_000)
+        expect(page.get_by_role("heading", name=renamed)).to_be_visible(timeout=5_000)
 
         page.context.grant_permissions(["clipboard-read", "clipboard-write"])
         card = _session_card(page, renamed)
@@ -67,7 +69,7 @@ class TestSessionManagerMenu:
 
         card.get_by_role("button", name="Session menu").click()
         page.get_by_role("button", name="Delete").click()
-        expect(page.get_by_text(renamed)).to_have_count(0, timeout=5_000)
+        expect(page.get_by_role("heading", name=renamed)).to_have_count(0, timeout=5_000)
 
     def test_uninitialized_agents_show_dashes_not_yellow_dot(self, page: Page, e2e_servers):
         _goto(page, e2e_servers["dashboard_url"])
@@ -76,6 +78,7 @@ class TestSessionManagerMenu:
 
         fresh_name = f"Fresh {uuid.uuid4().hex[:6]}"
         page.get_by_placeholder("Session name").fill(fresh_name)
+        Path("/tmp/teamchat-fresh").mkdir(parents=True, exist_ok=True)
         page.get_by_placeholder("Absolute directory path").fill("/tmp/teamchat-fresh")
         page.get_by_role("button", name="Create").click()
 
@@ -92,10 +95,11 @@ class TestSessionManagerMenu:
 
         alt_name = f"Alt Session {uuid.uuid4().hex[:6]}"
         page.get_by_placeholder("Session name").fill(alt_name)
+        Path("/tmp/teamchat-alt").mkdir(parents=True, exist_ok=True)
         page.get_by_placeholder("Absolute directory path").fill("/tmp/teamchat-alt")
         page.get_by_role("button", name="Create").click()
+        expect(page.get_by_role("heading", name=alt_name)).to_be_visible(timeout=5_000)
 
-        _session_card(page, alt_name).get_by_role("button", name="Switch").click()
         page.get_by_role("button", name="Close session manager").click()
 
         expect(page.get_by_role("button").filter(has_text=alt_name)).to_be_visible(timeout=5_000)

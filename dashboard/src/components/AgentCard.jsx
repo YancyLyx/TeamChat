@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { AGENT_INFO, UI_EMOJI } from '../constants/agents.js'
+import { formatTokens } from '../utils/metrics.js'
 
 const AGENT_ROLE_CARDS = {
   'cici咪': {
@@ -25,6 +26,7 @@ export default function AgentCard({ agent, sessions = [], compact }) {
   const card = AGENT_ROLE_CARDS[agent.name]
   const statusClass = agent.is_busy ? 'busy' : 'idle'
   const rate = (agent.success_rate * 100).toFixed(0)
+  const totalTasks = agent.total_tasks ?? agent.total_calls ?? 0
 
   if (compact) {
     return (
@@ -35,7 +37,7 @@ export default function AgentCard({ agent, sessions = [], compact }) {
             <span className={`text-sm font-medium ${info.nameColor}`}>{agent.name}</span>
             <span className={`status-dot ${statusClass}`} />
           </div>
-          <p className="text-xs text-gray-400">{agent.total_tasks} tasks · {rate}%</p>
+          <p className="text-xs text-gray-400">{totalTasks} tasks · {rate}%</p>
         </div>
       </div>
     )
@@ -54,11 +56,13 @@ export default function AgentCard({ agent, sessions = [], compact }) {
         </div>
       </div>
       <div className="mt-3 flex items-center gap-3 text-xs">
-        <span className="text-gray-500"><strong className="text-gray-700">{agent.total_tasks}</strong> tasks</span>
+        <span className="text-gray-500"><strong className="text-gray-700">{totalTasks}</strong> tasks</span>
         <span className="text-gray-300">|</span>
         <span className={agent.success_rate >= 0.8 ? 'text-green-600' : 'text-yellow-600'}><strong>{rate}%</strong></span>
       </div>
-      {agent.avg_duration_ms > 0 && <div className="mt-1 text-xs text-gray-400">avg {(agent.avg_duration_ms / 1000).toFixed(1)}s</div>}
+      <div className="mt-1 text-xs text-gray-400">
+        avg {((agent.avg_duration_ms || 0) / 1000).toFixed(1)}s · {formatTokens(agent.total_tokens)} tokens
+      </div>
 
       {/* Expanded: role card with personality + recent sessions */}
       {expanded && (

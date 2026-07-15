@@ -16,6 +16,8 @@ class AgentInfo(BaseModel):
     total_tasks: int = 0
     success_rate: float = 0.0
     avg_duration_ms: float = 0.0
+    token_usage: dict = Field(default_factory=dict)
+    total_tokens: int = 0
 
 
 class SessionRow(BaseModel):
@@ -27,6 +29,7 @@ class SessionRow(BaseModel):
     output: str
     exit_code: int
     duration_ms: int
+    token_usage: dict = Field(default_factory=dict)
     started_at: str
     finished_at: str
     tag: str = "prod"

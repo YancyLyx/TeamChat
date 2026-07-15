@@ -40,8 +40,9 @@ from engine.bus import MessageBus
 from engine.task_table import create_task_table
 from engine.runtime import create_runtime
 from engine.orchestrator import Orchestrator
+from engine.session_store import create_session_store
 
-from api.routes import agents, sessions, tasks, chat
+from api.routes import agents, sessions, tasks, chat, teamchat_sessions
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,7 @@ async def lifespan(app: FastAPI):
     bus.init()
     task_table = create_task_table(config)
     runtime = create_runtime(config)
+    session_store = create_session_store(config)
 
     # Discover existing sessions
     runtime.discover_sessions()
@@ -98,6 +100,7 @@ async def lifespan(app: FastAPI):
     app.state.task_table = task_table
     app.state.runtime = runtime
     app.state.orchestrator = Orchestrator(task_table)
+    app.state.session_store = session_store
     app.state.ws_manager = manager
     app.state.loop = asyncio.get_running_loop()
 
@@ -113,6 +116,7 @@ async def lifespan(app: FastAPI):
 
     await runtime.close()
     task_table.close()
+    session_store.close()
     store.close()
     logger.info("TeamChat API shut down")
 
@@ -139,6 +143,7 @@ def create_app() -> FastAPI:
     app.include_router(sessions.router)
     app.include_router(tasks.router)
     app.include_router(chat.router)
+    app.include_router(teamchat_sessions.router)
 
     return app
 
@@ -191,6 +196,32 @@ async def stats(request: Request):
             },
         )
     return {"agents": agents}
+
+
+@app.get("/api/engine")
+async def engine_status(request: Request):
+    """Engine runtime observability for the Live Panel (ADR-003 §9)."""
+    router = request.app.state.router
+    orchestrator = request.app.state.orchestrator
+    from engine.config import ALL_AGENTS
+
+    active_agents = [
+        {"name": a.name, "is_busy": router.is_busy(a)}
+        for a in ALL_AGENTS
+    ]
+
+    queue_length = 0
+    if hasattr(orchestrator, "_queue"):
+        queue_length = len(orchestrator._queue)
+
+    # Default mode: parallel. Orchestrator can toggle when cici咪 is busy.
+    mode = "serial" if orchestrator.is_cici_busy() else "parallel"
+
+    return {
+        "mode": mode,
+        "active_agents": active_agents,
+        "queue_length": queue_length,
+    }
 
 
 if __name__ == "__main__":

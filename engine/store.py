@@ -161,18 +161,39 @@ class SessionStore:
         ).fetchone()[0]
 
         success = self.conn.execute(
-            f"SELECT COUNT(*) FROM sessions {where} AND exit_code = 0", params
+            f"SELECT COUNT(*) FROM sessions {'WHERE agent_name = ? AND exit_code = 0' if agent_name else 'WHERE exit_code = 0'}",
+            params,
         ).fetchone()[0] if total > 0 else 0
 
         avg_dur = self.conn.execute(
             f"SELECT AVG(duration_ms) FROM sessions {where}", params
         ).fetchone()[0] or 0
 
+        token_rows = self.conn.execute(
+            f"SELECT token_usage FROM sessions {where}", params
+        ).fetchall()
+        token_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+        for (raw_usage,) in token_rows:
+            try:
+                usage = json.loads(raw_usage) if isinstance(raw_usage, str) else (raw_usage or {})
+            except json.JSONDecodeError:
+                usage = {}
+            if not isinstance(usage, dict):
+                continue
+            input_tokens = int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
+            output_tokens = int(usage.get("output_tokens") or usage.get("completion_tokens") or 0)
+            total_tokens = int(usage.get("total_tokens") or usage.get("tokens") or 0)
+            token_usage["input_tokens"] += input_tokens
+            token_usage["output_tokens"] += output_tokens
+            token_usage["total_tokens"] += total_tokens or input_tokens + output_tokens
+
         return {
             "total_calls": total,
             "total_success": success,
             "success_rate": success / total if total > 0 else 0.0,
             "avg_duration_ms": round(avg_dur, 0),
+            "token_usage": token_usage,
+            "total_tokens": token_usage["total_tokens"],
         }
 
     def stats_by_agent(self) -> dict[str, dict]:
