@@ -183,6 +183,53 @@ class AgentCallStore:
         ).fetchall()
         return {r[0]: self.stats(agent_name=r[0], tag=tag, teamchat_session_id=teamchat_session_id) for r in rows}
 
+    def token_stats(self, agent_name: str | None = None,
+                    teamchat_session_id: int = 1) -> dict:
+        """Aggregate token usage from JSON token_usage field."""
+        query = "SELECT token_usage FROM agent_calls WHERE teamchat_session_id = ?"
+        params = [teamchat_session_id]
+        if agent_name:
+            query += " AND agent_name = ?"
+            params.append(agent_name)
+        rows = self.conn.execute(query, params).fetchall()
+
+        input_t, output_t = 0, 0
+        for (raw,) in rows:
+            try:
+                tu = json.loads(raw) if isinstance(raw, str) else (raw or {})
+                input_t += tu.get("input_tokens", 0) or 0
+                output_t += tu.get("output_tokens", 0) or 0
+            except Exception:
+                pass
+        return {
+            "input_tokens": input_t,
+            "output_tokens": output_t,
+            "total_tokens": input_t + output_t,
+        }
+
+    def tool_stats(self, agent_name: str | None = None,
+                   teamchat_session_id: int = 1) -> dict:
+        """Aggregate tool call stats from JSON tool_calls field."""
+        query = "SELECT tool_calls FROM agent_calls WHERE teamchat_session_id = ?"
+        params = [teamchat_session_id]
+        if agent_name:
+            query += " AND agent_name = ?"
+            params.append(agent_name)
+        rows = self.conn.execute(query, params).fetchall()
+
+        total = 0
+        by_name: dict[str, int] = {}
+        for (raw,) in rows:
+            try:
+                tc = json.loads(raw) if isinstance(raw, str) else (raw or [])
+                for t in tc:
+                    total += 1
+                    name = t.get("name", "unknown") if isinstance(t, dict) else str(t)
+                    by_name[name] = by_name.get(name, 0) + 1
+            except Exception:
+                pass
+        return {"total_tool_calls": total, "tools_by_name": by_name}
+
     def _row_to_call(self, row: tuple) -> CallRow:
         tu_raw = row[8] if len(row) > 8 else "{}"
         tc_raw = row[9] if len(row) > 9 else "[]"

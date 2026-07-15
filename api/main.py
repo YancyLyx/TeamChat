@@ -178,24 +178,34 @@ async def health():
 
 
 @app.get("/api/stats")
-async def stats(request: Request):
-    """Get aggregated statistics for all agents."""
+async def stats(request: Request, teamchat_session_id: int = 1):
+    """Get aggregated statistics for all agents (ADR-003 §9, §10.5)."""
     from engine.config import ALL_AGENTS
 
     store = request.app.state.store
-    by_agent = store.stats_by_agent()
-    agents = {}
+    by_agent = store.stats_by_agent(teamchat_session_id=teamchat_session_id)
+
+    # Build enriched agent stats with token + tool data
+    enriched = {}
+    token_grand_total = 0
     for agent in ALL_AGENTS:
-        agents[agent.name] = by_agent.get(
-            agent.name,
-            {
-                "total_calls": 0,
-                "total_success": 0,
-                "success_rate": 0.0,
-                "avg_duration_ms": 0,
-            },
-        )
-    return {"agents": agents}
+        base = by_agent.get(agent.name, {})
+        token_data = store.token_stats(agent_name=agent.name, teamchat_session_id=teamchat_session_id)
+        tool_data = store.tool_stats(agent_name=agent.name, teamchat_session_id=teamchat_session_id)
+        token_grand_total += token_data.get("output_tokens", 0)
+        enriched[agent.name] = {
+            **base,
+            "input_tokens": token_data.get("input_tokens", 0),
+            "output_tokens": token_data.get("output_tokens", 0),
+            "total_tokens": token_data.get("total_tokens", 0),
+            "tool_calls": tool_data.get("total_tool_calls", 0),
+            "tools_by_name": tool_data.get("tools_by_name", {}),
+        }
+
+    return {
+        "agents": enriched,
+        "token_grand_total": token_grand_total,
+    }
 
 
 @app.get("/api/engine")
