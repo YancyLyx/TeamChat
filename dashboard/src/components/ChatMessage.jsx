@@ -1,15 +1,11 @@
 
 import ApprovalCard from './ApprovalCard.jsx'
+import { AGENT_EMOJI, UI_EMOJI } from '../constants/agents.js'
 
 const AGENT_BORDERS = {
   'cici咪': 'border-blue-400',
   'coco咪': 'border-green-400',
   'soso咪': 'border-purple-400',
-}
-const AGENT_EMOJI = {
-  'cici咪': '\U0001f3d7\ufe0f',
-  'coco咪': '\u26a1',
-  'soso咪': '\U0001f50d',
 }
 
 function ft(iso) {
@@ -42,7 +38,7 @@ function ps(text) {
 function RS({ text, tss }) {
   if (tss && tss.length > 0) {
     return (<div className="space-y-2">
-      {tss.map((sec, i) => <details key={i} className="bg-gray-50 border border-gray-200 rounded-lg overflow-hidden"><summary className="flex items-center gap-2 px-3 py-2 text-xs font-mono cursor-pointer hover:bg-gray-100 select-none text-gray-500"><span>\U0001f4ad</span><span className="font-semibold text-gray-600">THINKING</span><span className="ml-auto text-gray-300 text-[10px]">expand/collapse</span></summary><div className="px-3 pb-2 pt-1 text-xs text-gray-500 font-mono leading-relaxed whitespace-pre-wrap border-t border-gray-100">{sec}</div></details>)}
+      {tss.map((sec, i) => <details key={i} className="bg-gray-50 border border-gray-200 rounded-lg overflow-hidden"><summary className="flex items-center gap-2 px-3 py-2 text-xs font-mono cursor-pointer hover:bg-gray-100 select-none text-gray-500"><span>{UI_EMOJI.thinking}</span><span className="font-semibold text-gray-600">THINKING</span><span className="ml-auto text-gray-300 text-[10px]">expand/collapse</span></summary><div className="px-3 pb-2 pt-1 text-xs text-gray-500 font-mono leading-relaxed whitespace-pre-wrap border-t border-gray-100">{sec}</div></details>)}
       <div className="whitespace-pre-wrap">{hlM(text)}</div>
     </div>)
   }
@@ -50,14 +46,13 @@ function RS({ text, tss }) {
   if (segs.length === 1 && segs[0].type === 'text') return <span className="whitespace-pre-wrap">{hlM(segs[0].content)}</span>
   return (<div className="space-y-2">{segs.map((seg, i) => {
     if (seg.type === 'text') return <div key={i} className="whitespace-pre-wrap">{hlM(seg.content)}</div>
-    return (<details key={i} className="bg-gray-50 border border-gray-200 rounded-lg overflow-hidden"><summary className="flex items-center gap-2 px-3 py-2 text-xs font-mono cursor-pointer hover:bg-gray-100 select-none text-gray-500"><span>{seg.type === 'thinking' ? '\U0001f4ad' : '\U0001f527'}</span><span className="font-semibold text-gray-600">{seg.heading}</span><span className="ml-auto text-gray-300 text-[10px]">expand/collapse</span></summary><div className="px-3 pb-2 pt-1 text-xs text-gray-500 font-mono leading-relaxed whitespace-pre-wrap border-t border-gray-100">{seg.content}</div></details>)
+    return (<details key={i} className="bg-gray-50 border border-gray-200 rounded-lg overflow-hidden"><summary className="flex items-center gap-2 px-3 py-2 text-xs font-mono cursor-pointer hover:bg-gray-100 select-none text-gray-500"><span>{seg.type === 'thinking' ? UI_EMOJI.thinking : UI_EMOJI.wrench}</span><span className="font-semibold text-gray-600">{seg.heading}</span><span className="ml-auto text-gray-300 text-[10px]">expand/collapse</span></summary><div className="px-3 pb-2 pt-1 text-xs text-gray-500 font-mono leading-relaxed whitespace-pre-wrap border-t border-gray-100">{seg.content}</div></details>)
   })}</div>)
 }
 
 export default function ChatMessage({ message }) {
   const { kind, agent, content, timestamp, thinking_sections, tool_name, tool_input, onApprove, onDeny } = message
 
-  // 1. Human — right-aligned, blue bubble
   if (kind === 'human') {
     return (
       <div className="flex justify-end mb-3 msg-animate">
@@ -65,7 +60,7 @@ export default function ChatMessage({ message }) {
           <div className="flex items-center justify-end gap-2 mb-1">
             <span className="text-[10px] text-gray-400 font-mono">{ft(timestamp)}</span>
             <span className="text-xs text-gray-500 font-medium">你</span>
-            <span className="text-sm">\U0001f9d1</span>
+            <span className="text-sm">{UI_EMOJI.human}</span>
           </div>
           <div className="bg-blue-500 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm">{content}</div>
         </div>
@@ -73,10 +68,9 @@ export default function ChatMessage({ message }) {
     )
   }
 
-  // 2. Agent — left-aligned, gray bubble with colored left border
   if (kind === 'agent' || kind === 'agent_reply' || kind === 'agent_message' || (kind === undefined && agent)) {
     const border = AGENT_BORDERS[agent] || 'border-gray-300'
-    const emoji = AGENT_EMOJI[agent] || '\U0001f916'
+    const emoji = AGENT_EMOJI[agent] || UI_EMOJI.fallback
     return (
       <div className="flex justify-start mb-3 msg-animate">
         <div className="max-w-[75%] min-w-[100px]">
@@ -93,12 +87,10 @@ export default function ChatMessage({ message }) {
     )
   }
 
-  // 3. System — centered, gray italic
   if (kind === 'system') {
     return <div className="flex justify-center mb-3 msg-animate"><div className="text-xs text-gray-400 italic max-w-[80%] text-center">{content}</div></div>
   }
 
-  // 4. Approval — inline approval card
   if (kind === 'approval') {
     return (
       <div className="flex justify-center mb-3 msg-animate">
@@ -107,13 +99,12 @@ export default function ChatMessage({ message }) {
     )
   }
 
-  // 5. Thinking — standalone collapsed
   if (kind === 'thinking') {
     return (
       <div className="flex justify-start mb-2 msg-animate">
         <details className="bg-gray-50 border border-gray-200 rounded-lg max-w-[75%] overflow-hidden">
           <summary className="flex items-center gap-2 px-3 py-2 text-xs font-mono cursor-pointer hover:bg-gray-100 select-none text-gray-400 italic">
-            <span>\U0001f4ad</span> THINKING <span className="ml-auto text-gray-300 text-[10px] not-italic">expand</span>
+            <span>{UI_EMOJI.thinking}</span> THINKING <span className="ml-auto text-gray-300 text-[10px] not-italic">expand</span>
           </summary>
           <div className="px-3 pb-2 pt-1 text-xs text-gray-500 font-mono leading-relaxed whitespace-pre-wrap border-t border-gray-100">{content}</div>
         </details>
@@ -121,12 +112,11 @@ export default function ChatMessage({ message }) {
     )
   }
 
-  // Fallback: task_event or unknown
   if (kind === 'task_event') {
     return (
       <div className="flex justify-start mb-1.5 pl-2 msg-animate">
         <div className="flex items-center gap-2 text-xs text-gray-400 font-mono">
-          <span>{message.type === 'task_started' ? '\U0001f680' : '\u2705'}</span>
+          <span>{message.type === 'task_started' ? UI_EMOJI.rocket : UI_EMOJI.check}</span>
           <span className="text-gray-500">{agent}</span>
           <span className="text-gray-300">|</span>
           <span className="truncate max-w-[300px]">{content}</span>

@@ -1,11 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import ChatMessage from './ChatMessage.jsx'
 import ChatInput from './ChatInput.jsx'
+import { WELCOME_MESSAGE } from '../constants/agents.js'
 
 const API_BASE = '/api'
-const AGENT_EMOJI = { 'cici\u54aa': '\U0001f3d7\ufe0f', 'coco\u54aa': '\u26a1', 'soso\u54aa': '\U0001f50d' }
-
-function ft(iso) { try { return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) } catch { return iso } }
 
 export default function ChatRoom({ wsMessages, connectionStatus }) {
   const [chatMessages, setChatMessages] = useState([])
@@ -42,7 +40,7 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
       if (!agentsRes.ok || !sessionsRes.ok) throw new Error('API request failed')
       const sessionsData = await sessionsRes.json()
       const initial = []
-      initial.push({ id: 'welcome', kind: 'system', agent: 'system', content: '\u6b22\u8fce\u6765\u5230 TeamChat\uff01\u4f7f\u7528 @cici\u54aa @coco\u54aa @soso\u54aa \u5411 agent \u53d1\u9001\u6d88\u606f\u3002', timestamp: new Date().toISOString() })
+      initial.push({ id: 'welcome', kind: 'system', agent: 'system', content: WELCOME_MESSAGE, timestamp: new Date().toISOString() })
       for (const s of sessionsData) {
         if (s.id) { seenIds.current.add(`session-${s.id}-prompt`); seenIds.current.add(`session-${s.id}-result`) }
         initial.push({ id: `session-${s.id}-prompt`, kind: 'task_event', agent: s.agent_name, content: s.prompt.slice(0, 80), type: 'task_started', timestamp: s.started_at })
@@ -50,7 +48,7 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
       }
       for (const m of initial) { if (m.id) seenIds.current.add(m.id) }
       setChatMessages(initial)
-    } catch (err) { setChatMessages([{ id: 'error', kind: 'system', agent: 'system', content: `\u52a0\u8f7d\u5386\u53f2\u5931\u8d25: ${err.message}`, timestamp: new Date().toISOString() }]) }
+    } catch (err) { setChatMessages([{ id: 'error', kind: 'system', agent: 'system', content: `加载历史失败: ${err.message}`, timestamp: new Date().toISOString() }]) }
     finally { setLoading(false) }
   }, [])
 
@@ -62,7 +60,7 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || `HTTP ${res.status}`) }
       return await res.json()
     } catch (err) {
-      setChatMessages(p => [...p, { id: `se-${Date.now()}`, kind: 'system', agent: 'system', content: `\u53d1\u9001\u5931\u8d25: ${err.message}`, timestamp: new Date().toISOString() }])
+      setChatMessages(p => [...p, { id: `se-${Date.now()}`, kind: 'system', agent: 'system', content: `发送失败: ${err.message}`, timestamp: new Date().toISOString() }])
       throw err
     }
   }, [])
@@ -80,21 +78,21 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
         const km = { human: 'human', agent_reply: 'agent', agent_message: 'agent', system: 'system', approval: 'approval', thinking: 'thinking' }
         adds.push({ id: mid, kind: km[d.kind] || (d.agent === 'human' ? 'human' : 'agent'), agent: d.agent || 'system', content: d.content || '', timestamp: d.timestamp || new Date().toISOString(), thinking_sections: d.thinking_sections, tool_name: d.tool_name, tool_input: d.tool_input })
       } else if (m.type === 'connected') {
-        adds.push({ id: `cc-${Date.now()}`, kind: 'system', agent: 'system', content: '\u5df2\u8fde\u63a5 TeamChat \u5b9e\u65f6\u901a\u9053', timestamp: new Date().toISOString() })
+        adds.push({ id: `cc-${Date.now()}`, kind: 'system', agent: 'system', content: '已连接 TeamChat 实时通道', timestamp: new Date().toISOString() })
       } else if (m.type === 'task_started') {
         const d = m.data || {}; const mid = d.session_id ? `task-${d.session_id}-s` : `ts-${Date.now()}`
         if (seenIds.current.has(mid)) continue; seenIds.current.add(mid)
-        adds.push({ id: mid, kind: 'task_event', agent: d.agent || 'system', content: d.prompt || '\u5f00\u59cb\u6267\u884c\u4efb\u52a1', type: 'task_started', timestamp: d.timestamp || new Date().toISOString() })
+        adds.push({ id: mid, kind: 'task_event', agent: d.agent || 'system', content: d.prompt || '开始执行任务', type: 'task_started', timestamp: d.timestamp || new Date().toISOString() })
       } else if (m.type === 'task_complete') {
         const d = m.data || {}; const mid = d.session_id ? `task-${d.session_id}-c` : `tc-${Date.now()}`
         if (seenIds.current.has(mid)) continue; seenIds.current.add(mid)
-        adds.push({ id: mid, kind: 'task_event', agent: d.agent || 'system', content: `${d.success ? '\u5b8c\u6210' : '\u5931\u8d25'}\u4efb\u52a1${d.duration_ms ? ' (' + (d.duration_ms / 1000).toFixed(1) + 's)' : ''}`, type: 'task_complete', timestamp: d.timestamp || new Date().toISOString() })
+        adds.push({ id: mid, kind: 'task_event', agent: d.agent || 'system', content: `${d.success ? '完成' : '失败'}任务${d.duration_ms ? ' (' + (d.duration_ms / 1000).toFixed(1) + 's)' : ''}`, type: 'task_complete', timestamp: d.timestamp || new Date().toISOString() })
       } else if (m.type === 'system_message') {
         const d = m.data || {}
         adds.push({ id: `sm-${Date.now()}`, kind: 'system', agent: 'system', content: d.content || '', timestamp: d.timestamp || new Date().toISOString() })
       } else if (m.type === 'message') {
         const d = m.data || {}
-        adds.push({ id: d.id || `bm-${Date.now()}`, kind: 'system', agent: d.from || 'system', content: `${d.from || '?'} \u2192 ${d.to || 'all'}: ${d.content || ''}`, timestamp: d.timestamp || new Date().toISOString() })
+        adds.push({ id: d.id || `bm-${Date.now()}`, kind: 'system', agent: d.from || 'system', content: `${d.from || '?'} → ${d.to || 'all'}: ${d.content || ''}`, timestamp: d.timestamp || new Date().toISOString() })
       }
     }
     if (adds.length > 0) setChatMessages(p => [...p, ...adds])
@@ -115,7 +113,7 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
             ))}
           </div>
         )}
-        {!loading && chatMessages.length === 0 && <div className="flex items-center justify-center h-full text-gray-400 text-sm">\u6682\u65e0\u6d88\u606f</div>}
+        {!loading && chatMessages.length === 0 && <div className="flex items-center justify-center h-full text-gray-400 text-sm">暂无消息</div>}
         {chatMessages.map((msg, i) => {
           if (msg.kind === 'approval' && resolvedApprovals.has(msg.id)) return null
           const enriched = msg.kind === 'approval'
@@ -132,7 +130,7 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
       <div className="px-4 py-1 border-t border-gray-100 flex items-center gap-2 bg-white">
         <span className={`inline-block w-1.5 h-1.5 rounded-full ${connectionStatus === 'connected' ? 'bg-green-500' : connectionStatus === 'connecting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'}`} />
         <span className={`text-[10px] font-mono ${connectionStatus === 'connected' ? 'text-green-600' : connectionStatus === 'connecting' ? 'text-yellow-600' : 'text-red-600'}`}>
-          {connectionStatus === 'connected' ? 'WebSocket \u5df2\u8fde\u63a5' : connectionStatus === 'connecting' ? '\u8fde\u63a5\u4e2d...' : '\u5df2\u65ad\u5f00'}
+          {connectionStatus === 'connected' ? 'WebSocket 已连接' : connectionStatus === 'connecting' ? '连接中...' : '已断开'}
         </span>
       </div>
       <ChatInput onSend={handleSend} disabled={connectionStatus !== 'connected'} />

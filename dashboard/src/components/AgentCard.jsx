@@ -1,14 +1,9 @@
 import { useState } from 'react'
-
-const AGENT_MAP = {
-  'cici咪': { emoji: '\U0001f3d7\ufe0f', border: 'border-blue-400', nameColor: 'text-blue-600', role: '架构师' },
-  'coco咪': { emoji: '\u26a1', border: 'border-green-400', nameColor: 'text-green-600', role: '全栈开发' },
-  'soso咪': { emoji: '\U0001f50d', border: 'border-purple-400', nameColor: 'text-purple-600', role: 'QA' },
-}
+import { AGENT_INFO, UI_EMOJI } from '../constants/agents.js'
 
 export default function AgentCard({ agent, sessions = [], compact }) {
   const [expanded, setExpanded] = useState(false)
-  const info = AGENT_MAP[agent.name] || { emoji: '\U0001f916', border: 'border-gray-300', nameColor: 'text-gray-700', role: agent.role || '' }
+  const info = AGENT_INFO[agent.name] || { emoji: UI_EMOJI.fallback, border: 'border-gray-300', nameColor: 'text-gray-700', role: agent.role || '' }
   const statusClass = agent.is_busy ? 'busy' : 'idle'
   const rate = (agent.success_rate * 100).toFixed(0)
 
@@ -21,7 +16,7 @@ export default function AgentCard({ agent, sessions = [], compact }) {
             <span className={`text-sm font-medium ${info.nameColor}`}>{agent.name}</span>
             <span className={`status-dot ${statusClass}`} />
           </div>
-          <p className="text-xs text-gray-400">{agent.total_tasks} tasks \u00b7 {rate}%</p>
+          <p className="text-xs text-gray-400">{agent.total_tasks} tasks · {rate}%</p>
         </div>
       </div>
     )
