@@ -60,14 +60,14 @@ ALL_AGENTS = (AGENT_CICI, AGENT_COCO, AGENT_SOSO)
 
 CLI_TEMPLATES: dict[str, list[str]] = {
     "claude": ["claude", "--print", "--output-format", "json", "{prompt}"],
-    "codex": ["codex", "exec", "{prompt}"],
+    "codex": ["codex", "exec", "--json", "{prompt}"],
     "cursor": ["cursor-agent", "{prompt}"],
 }
 
 # Templates with --continue / --resume for session context
 CLI_CONTINUE_TEMPLATES: dict[str, list[str]] = {
     "claude": ["claude", "--print", "--output-format", "json", "--continue", "{prompt}"],
-    "codex": ["codex", "exec", "resume", "--last", "{prompt}"],
+    "codex": ["codex", "exec", "resume", "--last", "--json", "{prompt}"],
     "cursor": ["cursor-agent", "{prompt}"],  # cursor doesn't have a known --continue flag yet
 }
 

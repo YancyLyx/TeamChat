@@ -7,6 +7,7 @@ Provides fast query interfaces for the Dashboard (Phase 3) and debugging.
 
 import json
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -70,6 +71,7 @@ class SessionStore:
         self.config = config
         self.db_path = config.teamchat_dir / "sessions.db"
         self._conn: sqlite3.Connection | None = None
+        self._lock = threading.Lock()
 
     # ---- Lifecycle ----
 
@@ -105,19 +107,20 @@ class SessionStore:
             started_at: str = "", finished_at: str = "") -> int:
         """Record one agent invocation. Returns the new row ID."""
         now = datetime.now(timezone.utc).isoformat()
-        self.conn.execute(
-            """INSERT INTO sessions
-               (agent_name, task_type, prompt, output, exit_code, duration_ms,
-                token_usage, tag, started_at, finished_at, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                agent_name, task_type, prompt, output, exit_code,
-                duration_ms, json.dumps(token_usage or {}, ensure_ascii=False), tag,
-                started_at or now, finished_at or now, now,
-            ),
-        )
-        self.conn.commit()
-        return self.conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        with self._lock:
+            self.conn.execute(
+                """INSERT INTO sessions
+                   (agent_name, task_type, prompt, output, exit_code, duration_ms,
+                    token_usage, tag, started_at, finished_at, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    agent_name, task_type, prompt, output, exit_code,
+                    duration_ms, json.dumps(token_usage or {}, ensure_ascii=False), tag,
+                    started_at or now, finished_at or now, now,
+                ),
+            )
+            self.conn.commit()
+            return self.conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
     # ---- Read ----
 

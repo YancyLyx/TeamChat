@@ -16,6 +16,15 @@ from pathlib import Path
 from typing import AsyncIterator
 
 from engine.config import AgentIdentity, Config, ALL_AGENTS
+from engine.codex_events import (
+    codex_item_text,
+    codex_tool_input,
+    codex_tool_name,
+    extract_codex_agent_text,
+    is_codex_agent_message,
+    is_codex_reasoning,
+    is_codex_tool_call,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -305,6 +314,7 @@ class RuntimeManager:
         )
 
         events = []
+        pending_reply = ""
         async for line in process.stdout:
             line_str = line.decode("utf-8", errors="replace").strip()
             if not line_str:
@@ -329,24 +339,33 @@ class RuntimeManager:
 
             elif etype == "item.completed":
                 item = raw.get("item", {})
-                itype = item.get("type", "")
-                if itype == "reasoning":
+                if not isinstance(item, dict):
+                    continue
+                if is_codex_reasoning(item):
                     events.append(AgentEvent(
                         type="thinking", agent_name=agent.name,
-                        content=item.get("text", ""), raw=raw))
-                elif itype == "agent_message":
+                        content=codex_item_text(item), raw=raw))
+                elif is_codex_agent_message(item):
+                    pending_reply = codex_item_text(item)
                     events.append(AgentEvent(
                         type="text", agent_name=agent.name,
-                        content=item.get("text", ""), raw=raw))
-                elif itype == "command_execution":
+                        content=pending_reply, raw=raw))
+                elif is_codex_tool_call(item):
                     events.append(AgentEvent(
                         type="tool_use", agent_name=agent.name,
-                        tool_name=item.get("command", "")[:80],
-                        tool_input={"exit_code": item.get("exit_code")}, raw=raw))
+                        tool_name=codex_tool_name(item),
+                        tool_input=codex_tool_input(item), raw=raw))
+
+            elif text := extract_codex_agent_text(raw):
+                pending_reply = text
+                events.append(AgentEvent(
+                    type="text", agent_name=agent.name,
+                    content=text, raw=raw))
 
             elif etype == "turn.completed":
                 events.append(AgentEvent(
                     type="done", agent_name=agent.name,
+                    content=pending_reply,
                     usage=raw.get("usage", {}), raw=raw))
 
         await process.wait()
