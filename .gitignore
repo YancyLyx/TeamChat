@@ -2,6 +2,8 @@
 .teamchat/sessions/
 .teamchat/messages/
 .teamchat/state.json
+.teamchat/*.db-shm
+.teamchat/*.db-wal
 
 # Python
 __pycache__/

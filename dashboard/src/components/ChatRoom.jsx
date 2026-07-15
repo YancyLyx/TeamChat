@@ -73,7 +73,8 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
     const adds = []
     for (const m of nms) {
       if (m.type === 'chat_message') {
-        const d = m.data || {}; const mid = d.id || `c-${Date.now()}`
+        const d = m.data || {}
+        const mid = d.id || `c-${d.agent || 'unknown'}-${d.timestamp || ''}-${adds.length}-${Date.now()}`
         if (mid && seenIds.current.has(mid)) continue; if (mid) seenIds.current.add(mid)
         const km = { human: 'human', agent_reply: 'agent', agent_message: 'agent', system: 'system', approval: 'approval', thinking: 'thinking' }
         adds.push({ id: mid, kind: km[d.kind] || (d.agent === 'human' ? 'human' : 'agent'), agent: d.agent || 'system', content: d.content || '', timestamp: d.timestamp || new Date().toISOString(), thinking_sections: d.thinking_sections, tool_name: d.tool_name, tool_input: d.tool_input })
