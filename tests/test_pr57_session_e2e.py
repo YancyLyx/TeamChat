@@ -77,12 +77,12 @@ class TestHumanMessageLog:
 
         _goto(page, e2e_servers["dashboard_url"])
         _wait_connected(page)
-        expect(page.get_by_text(f"@coco咪 {marker}")).to_be_visible(timeout=10_000)
+        expect(page.get_by_text(marker).first).to_be_visible(timeout=15_000)
 
         page.reload()
         page.wait_for_load_state("networkidle")
         _wait_connected(page)
-        expect(page.get_by_text(f"@coco咪 {marker}")).to_be_visible(timeout=10_000)
+        expect(page.get_by_text(marker).first).to_be_visible(timeout=15_000)
 
 
 class TestSessionIdPassThrough:

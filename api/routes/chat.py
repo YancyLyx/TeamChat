@@ -14,7 +14,21 @@ from pydantic import BaseModel, Field
 
 from engine.config import ALL_AGENTS, AGENT_CICI, AGENT_COCO, AGENT_SOSO
 from engine.message_parser import parse_message, build_cici_analysis_prompt
-from engine.runner import AgentTask
+from engine.runner import AgentTask, AgentResult
+
+
+async def _spawn_with_session(agent, task, runner, session_store,
+                               teamchat_session_id) -> AgentResult:
+    """Spawn agent: resume stored CLI session ID, or cold-start and capture it."""
+    sid = session_store.get_agent_session_id(teamchat_session_id, agent.cli)
+    result = await runner._run(
+        agent, task, use_continue=bool(sid), session_id=sid or None,
+    )
+    if result.cli_session_id and not sid:
+        session_store.set_agent_session_id(
+            teamchat_session_id, agent.cli, result.cli_session_id,
+        )
+    return result
 
 GREETING_KEYWORDS = {"大家好", "hello", "hi", "在吗", "有人在吗", "你好", "你们好", "嗨"}
 
@@ -70,6 +84,7 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
         runner = request.app.state.runner
         store = request.app.state.store
         router = request.app.state.router
+        session_store = request.app.state.session_store
         greeting_msg = f"人类在聊天室发了 '{content}'。请简短回复一句问候/自我介绍（一句话即可），让人知道你在。"
 
         # Broadcast "analyzing" notification
@@ -83,7 +98,8 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
             router.mark_busy(agent)
             task = AgentTask(prompt=greeting_msg, timeout_seconds=60)
             try:
-                result = await runner.run(agent, task)
+                result = await _spawn_with_session(agent, task, runner,
+                    session_store, teamchat_session_id)
             finally:
                 router.mark_free(agent)
             # Log to store
@@ -124,11 +140,15 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
         runner = request.app.state.runner
         store = request.app.state.store
         router = request.app.state.router
+        session_store = request.app.state.session_store
 
         analysis_prompt = build_cici_analysis_prompt(content)
         router.mark_busy(AGENT_CICI)
         try:
-            result = await runner.run(AGENT_CICI, AgentTask(prompt=analysis_prompt, timeout_seconds=60))
+            result = await _spawn_with_session(
+                AGENT_CICI, AgentTask(prompt=analysis_prompt, timeout_seconds=60),
+                runner, session_store, teamchat_session_id,
+            )
         finally:
             router.mark_free(AGENT_CICI)
         analysis = result.output.strip()
@@ -157,7 +177,9 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
             task = AgentTask(prompt=task_desc, context=f"cici咪 assigned: {task_desc}")
             router.mark_busy(target)
             try:
-                result = await runner.run(target, task)
+                result = await _spawn_with_session(
+                    target, task, runner, session_store, teamchat_session_id,
+                )
             finally:
                 router.mark_free(target)
 
@@ -211,6 +233,7 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
     runner = request.app.state.runner
     store = request.app.state.store
     router_inst = request.app.state.router
+    session_store = request.app.state.session_store
     router_inst.mark_busy(target)
 
     await ws_mgr.broadcast({
@@ -220,7 +243,9 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
 
     try:
         task = AgentTask(prompt=clean)
-        result = await runner.run_with_context(target, task)
+        result = await _spawn_with_session(
+            target, task, runner, session_store, teamchat_session_id,
+        )
 
         call_id = store.log(
             agent_name=target.name, prompt=task.full_prompt(),

@@ -107,12 +107,22 @@ class Config:
         return agent.cli  # fallback: rely on PATH
 
     def get_cli_command(self, agent: AgentIdentity, prompt: str,
-                         use_continue: bool = False) -> list[str]:
+                         use_continue: bool = False,
+                         session_id: str | None = None) -> list[str]:
         """Build the full CLI command for an agent with the given prompt.
 
-        When use_continue=True, uses --continue/resume templates to maintain
-        conversation context across calls (ADR-002).
+        When session_id is set, resume that specific CLI session.
+        When use_continue=True (no session_id), uses --continue/resume-last templates.
         """
+        cli_path = self.get_cli_path(agent)
+        if session_id:
+            if agent.cli == "claude":
+                return [cli_path, "--print", "--output-format", "json",
+                        "--resume", session_id, prompt]
+            if agent.cli == "codex":
+                return [cli_path, "exec", "resume", session_id, "--json", prompt]
+            if agent.cli == "cursor":
+                return [cli_path, "--print", f"--resume={session_id}", prompt]
         templates = CLI_CONTINUE_TEMPLATES if use_continue else CLI_TEMPLATES
         template = templates.get(agent.cli, CLI_TEMPLATES[agent.cli])
         return [part.format(prompt=prompt) for part in template]

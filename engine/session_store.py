@@ -142,6 +142,27 @@ class SessionStore:
     def count(self) -> int:
         return self.conn.execute("SELECT COUNT(*) FROM teamchat_sessions").fetchone()[0]
 
+    def get_agent_session_id(self, teamchat_session_id: int, agent_cli: str) -> str:
+        """Get the CLI session ID for an agent within a TeamChat session.
+        agent_cli: 'claude' / 'codex' / 'cursor'."""
+        col_map = {"claude": "claude_id", "codex": "codex_id", "cursor": "cursor_id"}
+        col = col_map.get(agent_cli)
+        if not col:
+            return ""
+        row = self.conn.execute(
+            f"SELECT {col} FROM teamchat_sessions WHERE id = ?",
+            (teamchat_session_id,),
+        ).fetchone()
+        return row[0] if row and row[0] else ""
+
+    def set_agent_session_id(self, teamchat_session_id: int, agent_cli: str, cli_session_id: str):
+        """Store the CLI session ID captured from a cold start."""
+        col_map = {"claude": "claude_id", "codex": "codex_id", "cursor": "cursor_id"}
+        col = col_map.get(agent_cli)
+        if not col:
+            return
+        self.update(teamchat_session_id, **{col: cli_session_id})
+
     def _row_to_session(self, row: tuple) -> TeamChatSession:
         return TeamChatSession(
             id=row[0], name=row[1], directory=row[2],
