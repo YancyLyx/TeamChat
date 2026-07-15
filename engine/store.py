@@ -112,7 +112,7 @@ class SessionStore:
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 agent_name, task_type, prompt, output, exit_code,
-                duration_ms, json.dumps(token_usage or {}), tag,
+                duration_ms, json.dumps(token_usage or {}, ensure_ascii=False), tag,
                 started_at or now, finished_at or now, now,
             ),
         )

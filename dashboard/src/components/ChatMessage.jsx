@@ -1,6 +1,7 @@
 
 import ApprovalCard from './ApprovalCard.jsx'
 import { AGENT_EMOJI, UI_EMOJI } from '../constants/agents.js'
+import { decodeUnicode } from '../utils/unicodeSafe.js'
 
 const AGENT_BORDERS = {
   'cici咪': 'border-blue-400',
@@ -14,6 +15,7 @@ function ft(iso) {
 }
 
 function hlM(text) {
+  text = decodeUnicode(text)
   if (!text) return null
   const parts = text.split(/(@(?:cici咪|coco咪|soso咪))/g)
   const cs = { 'cici咪': 'bg-blue-100 text-blue-700', 'coco咪': 'bg-green-100 text-green-700', 'soso咪': 'bg-purple-100 text-purple-700' }

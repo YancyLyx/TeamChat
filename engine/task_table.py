@@ -101,7 +101,7 @@ class TaskTable:
                depends_on: list[int] | None = None) -> Task:
         """Create a new task. Returns the created Task with ID."""
         now = datetime.now(timezone.utc).isoformat()
-        deps = json.dumps(depends_on or [])
+        deps = json.dumps(depends_on or [], ensure_ascii=False)
         self.conn.execute(
             """INSERT INTO task_table
                (agent, title, description, status, depends_on, created_at)
@@ -128,7 +128,7 @@ class TaskTable:
             return
 
         if "depends_on" in updates and isinstance(updates["depends_on"], list):
-            updates["depends_on"] = json.dumps(updates["depends_on"])
+            updates["depends_on"] = json.dumps(updates["depends_on"], ensure_ascii=False)
 
         # Auto-set timestamps
         now = datetime.now(timezone.utc).isoformat()

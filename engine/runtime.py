@@ -231,7 +231,7 @@ class RuntimeManager:
                 "role": "user",
                 "content": [{"type": "text", "text": prompt}]
             }
-        }) + "\n"
+        }, ensure_ascii=False) + "\n"
         process.stdin.write(user_msg.encode("utf-8"))
         await process.stdin.drain()
 
