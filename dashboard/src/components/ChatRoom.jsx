@@ -101,6 +101,8 @@ export default function ChatRoom({ wsMessages, connectionStatus }) {
         const km = { human: 'human', agent_reply: 'agent', agent_message: 'agent', system: 'system', approval: 'approval', thinking: 'thinking' }
         adds.push({ id: mid, kind: km[d.kind] || (d.agent === 'human' ? 'human' : 'agent'), agent: d.agent || 'system', content: d.content || '', timestamp: d.timestamp || new Date().toISOString(), thinking_sections: d.thinking_sections, tool_name: d.tool_name, tool_input: d.tool_input })
       } else if (m.type === 'connected') {
+        if (seenIds.current.has('ws-connected')) continue
+        seenIds.current.add('ws-connected')
         adds.push({ id: `cc-${Date.now()}`, kind: 'system', agent: 'system', content: '已连接 TeamChat 实时通道', timestamp: new Date().toISOString() })
       } else if (m.type === 'task_started') {
         const d = m.data || {}; const mid = d.session_id ? `task-${d.session_id}-s` : `ts-${Date.now()}`
