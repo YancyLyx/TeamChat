@@ -37,7 +37,7 @@ export default function ChatRoom({ wsMessages, connectionStatus, sessionId }) {
       setLoading(true)
       const [agentsRes, sessionsRes] = await Promise.all([
         fetch(`${API_BASE}/agents`),
-        fetch(`${API_BASE}/sessions?limit=30&tag=prod`),
+        fetch(`${API_BASE}/sessions?limit=30&tag=prod${sessionId != null ? `&teamchat_session_id=${sessionId}` : ''}`),
       ])
       if (!agentsRes.ok || !sessionsRes.ok) throw new Error('API request failed')
       const sessionsData = await sessionsRes.json()
@@ -52,7 +52,7 @@ export default function ChatRoom({ wsMessages, connectionStatus, sessionId }) {
       setChatMessages(initial)
     } catch (err) { setChatMessages([{ id: 'error', kind: 'system', agent: 'system', content: `加载历史失败: ${err.message}`, timestamp: new Date().toISOString() }]) }
     finally { setLoading(false) }
-  }, [])
+  }, [sessionId])
 
   useEffect(() => { fetchInit() }, [fetchInit])
 
