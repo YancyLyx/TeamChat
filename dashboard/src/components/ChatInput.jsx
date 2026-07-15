@@ -74,6 +74,27 @@ export default function ChatInput({ onSend, disabled }) {
 
   const handleAttach = useCallback(() => fileRef.current?.click(), [])
   const handleFiles = useCallback((e) => { setFiles(p => [...p, ...Array.from(e.target.files || [])].slice(0, 5)); e.target.value = '' }, [])
+  const handlePaste = useCallback(async (e) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault()
+        const file = item.getAsFile()
+        if (!file) continue
+        const fd = new FormData()
+        fd.append('file', file, 'paste-screenshot.png')
+        try {
+          const res = await fetch('/api/upload', { method: 'POST', body: fd })
+          if (res.ok) {
+            const data = await res.json()
+            setFiles(p => [...p, { name: data.name, path: data.path, size: data.size }])
+          }
+        } catch { /* ignore upload errors */ }
+        break
+      }
+    }
+  }, [])
 
   return (
     <div className="relative border-t border-gray-200 bg-white px-4 pt-3 pb-3">
@@ -100,7 +121,7 @@ export default function ChatInput({ onSend, disabled }) {
             </div>
           )}
           <textarea ref={taRef} value={text} onChange={handleChange} onKeyDown={handleKeyDown}
-            onCompositionStart={onCompStart} onCompositionEnd={onCompEnd}
+            onPaste={handlePaste} onCompositionStart={onCompStart} onCompositionEnd={onCompEnd}
             placeholder={CHAT_PLACEHOLDER} rows={1} disabled={disabled || sending}
             className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-700 placeholder-gray-400 resize-none outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200 transition-colors disabled:bg-gray-100 disabled:text-gray-400"
             style={{ minHeight: '42px', maxHeight: '120px' }}
