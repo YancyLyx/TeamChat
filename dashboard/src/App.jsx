@@ -69,6 +69,27 @@ export default function App() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
+  // Poll /api/engine every 2s to keep agent sidebar status current
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/engine`)
+        if (!res.ok) return
+        const data = await res.json()
+        const busyMap = {}
+        for (const a of data.active_agents || []) {
+          busyMap[a.name] = a.is_busy
+        }
+        setAgents(p => p.map(a => ({
+          ...a,
+          is_busy: busyMap[a.name] ?? false,
+        })))
+      } catch { /* ignore */ }
+    }
+    const interval = setInterval(poll, 2000)
+    return () => clearInterval(interval)
+  }, [])
+ 
   // Load the default/active session from the API on mount
   useEffect(() => {
     let cancelled = false
