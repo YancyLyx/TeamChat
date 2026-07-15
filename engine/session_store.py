@@ -10,6 +10,8 @@ from pathlib import Path
 
 from engine.config import Config
 
+DEFAULT_SESSION_NAME = "TeamChat 开发"
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS teamchat_sessions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,6 +48,17 @@ class TeamChatSession:
         }
 
 
+def _discover_agent_session_ids(project_root: Path) -> dict[str, str]:
+    """Discover CLI session IDs from local agent storage (if present)."""
+    from engine.runtime import find_claude_session, find_codex_session, find_cursor_session
+
+    return {
+        "claude_id": find_claude_session(project_root) or "",
+        "codex_id": find_codex_session() or "",
+        "cursor_id": find_cursor_session() or "",
+    }
+
+
 class SessionStore:
     """SQLite store for TeamChat sessions (project-level, not CLI sessions)."""
 
@@ -70,13 +83,10 @@ class SessionStore:
         self._conn.commit()
         # Seed default session if database is empty
         if self.count() == 0:
-            s = self.create("TeamChat 开发", str(self.config.project_root))
-            # Pre-fill known session IDs so agents are ready immediately
-            self.update(s.id,
-                claude_id="5fbaf844-4cbc-48b2-9242-7902d098bd81",
-                codex_id="019f40ef-e8cf-76f0-8b49-6691cc7275f3",
-                cursor_id="04e64d6d-de38-4861-a7ce-87c26d28d77f",
-            )
+            s = self.create(DEFAULT_SESSION_NAME, str(self.config.project_root))
+            agent_ids = _discover_agent_session_ids(self.config.project_root)
+            if any(agent_ids.values()):
+                self.update(s.id, **agent_ids)
 
     def close(self):
         if self._conn:

@@ -30,7 +30,7 @@ def _wait_connected(page: Page, timeout: float = 15_000) -> None:
 
 
 def _open_session_manager(page: Page) -> None:
-    page.get_by_role("button").filter(has_text="TeamChat develop").click()
+    page.get_by_role("button").filter(has_text="TeamChat").first.click()
     expect(page.get_by_role("heading", name="Session Manager")).to_be_visible()
 
 
