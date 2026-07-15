@@ -6,6 +6,7 @@ import SessionManager from './components/SessionManager.jsx'
 import StatsPanel from './components/StatsPanel.jsx'
 import LivePanel from './components/LivePanel.jsx'
 import { UI_EMOJI } from './constants/agents.js'
+import { normalizeAgentMetrics } from './utils/metrics.js'
 
 const API_BASE = '/api'
 let tc = 0
@@ -24,6 +25,7 @@ export default function App() {
   const { messages: wsMessages, connectionStatus } = useWebSocket()
   const lastMcRef = useRef(0)
   const [liveEvents, setLiveEvents] = useState([])
+  const [agentMetrics, setAgentMetrics] = useState({})
 
   const fetchData = useCallback(async () => {
     try {
@@ -37,7 +39,14 @@ export default function App() {
       if (!ar.ok || !sr.ok || !str.ok) throw new Error('API failed')
       const ad = await ar.json(), sd = await sr.json(), st = await str.json()
       const tableRows = tr.ok ? await tr.json() : []
-      setAgents(ad.map((a) => ({ ...a, total_tasks: st?.agents?.[a.name]?.total_calls ?? a.total_tasks ?? 0, success_rate: st?.agents?.[a.name]?.success_rate ?? a.success_rate ?? 0, avg_duration_ms: st?.agents?.[a.name]?.avg_duration_ms ?? a.avg_duration_ms ?? 0 })))
+      setAgentMetrics(normalizeAgentMetrics(st, sd))
+      setAgents(ad.map((a) => ({
+        ...a,
+        total_tasks: st?.agents?.[a.name]?.total_calls ?? a.total_tasks ?? 0,
+        success_rate: st?.agents?.[a.name]?.success_rate ?? a.success_rate ?? 0,
+        avg_duration_ms: st?.agents?.[a.name]?.avg_duration_ms ?? a.avg_duration_ms ?? 0,
+        total_tokens: st?.agents?.[a.name]?.total_tokens ?? a.total_tokens ?? 0,
+      })))
       const ba = {}; for (const s of sd) { if (!ba[s.agent_name]) ba[s.agent_name] = []; ba[s.agent_name].push(s) }; setAgSessions(ba)
       const sessionTasks = sd.map((s) => ({ id: `session-${s.id}`, title: s.prompt.slice(0, 80), agent: s.agent_name, status: s.exit_code === 0 ? 'done' : 'failed', exit_code: s.exit_code, duration_ms: s.duration_ms, time: new Date(s.started_at).toLocaleTimeString(), preview: s.output.slice(0, 100) }))
       const tableTasks = tableRows.map((t) => ({
@@ -116,7 +125,7 @@ export default function App() {
                 <button onClick={() => setRightTab('stats')} className={`flex-1 text-xs py-2 font-medium transition-colors ${rightTab === 'stats' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'}`}>Stats</button>
                 <button onClick={() => setRightTab('live')} className={`flex-1 text-xs py-2 font-medium transition-colors ${rightTab === 'live' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'}`}>Live</button>
               </div>
-              {rightTab === 'stats' ? <StatsPanel /> : <LivePanel recentEvents={liveEvents} />}
+              {rightTab === 'stats' ? <StatsPanel agentMetrics={agentMetrics} /> : <LivePanel recentEvents={liveEvents} />}
             </>
           )}
         </aside>
