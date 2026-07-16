@@ -13,6 +13,7 @@ Usage:
 import logging
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 import os
 import uuid
 
@@ -109,6 +110,23 @@ async def lifespan(app: FastAPI):
     app.state.session_store = session_store
     app.state.ws_manager = manager
     app.state.loop = asyncio.get_running_loop()
+
+    async def broadcast_claude_approval(agent, request_id: str, evt: dict) -> None:
+        req = evt.get("request", {}) or {}
+        await manager.broadcast({
+            "type": "chat_message",
+            "data": {
+                "id": f"approval-{request_id}",
+                "kind": "approval",
+                "agent": agent.name,
+                "request_id": request_id,
+                "tool_name": req.get("tool_name", ""),
+                "tool_input": req.get("input", {}),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        })
+
+    runner.approval_notifier = broadcast_claude_approval
 
     async def on_bus_message(msg):
         await manager.broadcast({

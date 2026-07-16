@@ -142,14 +142,12 @@ class AgentRunner:
 
     async def _read_claude_stream(self, process, timeout: float, agent: AgentIdentity):
         """Read Claude stdout line-by-line, handling control_request (approval) mid-stream."""
-        import asyncio as _asyncio
         from api.routes.approval import register_approval, clear_approval
 
         buffer = ""
         stderr_buffer = ""
-        approval_events: dict[str, _asyncio.Event] = {}
+        pending_ids: list[str] = []
 
-        # Read stderr concurrently
         async def read_stderr():
             nonlocal stderr_buffer
             if process.stderr:
@@ -159,11 +157,11 @@ class AgentRunner:
                         break
                     stderr_buffer += line.decode("utf-8", errors="replace")
 
-        stderr_task = _asyncio.create_task(read_stderr())
+        stderr_task = asyncio.create_task(read_stderr())
 
         try:
             while True:
-                line = await _asyncio.wait_for(
+                line = await asyncio.wait_for(
                     process.stdout.readline(), timeout=timeout
                 )
                 if not line:
@@ -171,36 +169,52 @@ class AgentRunner:
                 line_str = line.decode("utf-8", errors="replace")
                 buffer += line_str
 
-                # Check for control_request (tool approval)
+                if not line_str.strip().startswith("{"):
+                    continue
                 try:
-                    if line_str.strip().startswith("{"):
-                        evt = json.loads(line_str.strip())
-                        if evt.get("type") == "control_request":
-                            req_id = evt.get("request_id", "")
-                            tool_name = evt.get("request", {}).get("tool_name", "")
-                            logger.info(f"[Engine] 🔒 Approval: {tool_name} ({req_id})")
+                    evt = json.loads(line_str.strip())
+                except json.JSONDecodeError:
+                    continue
 
-                            # Register for API
-                            register_approval(req_id, process.stdin)
-                            # Create event for this method to wait on
-                            event = _asyncio.Event()
-                            approval_events[req_id] = event
+                if evt.get("type") != "control_request":
+                    continue
 
-                            # Wait for human response (via /api/approval)
-                            await _asyncio.wait_for(event.wait(), timeout=120)
-                            logger.info(f"[Engine] ✅ Approval {req_id} resolved, continuing...")
-                except (json.JSONDecodeError, KeyError):
-                    pass
-        except _asyncio.TimeoutError:
+                req_id = evt.get("request_id", "")
+                if not req_id:
+                    continue
+
+                tool_name = evt.get("request", {}).get("tool_name", "")
+                logger.info(f"[Engine] 🔒 Approval: {tool_name} ({req_id})")
+
+                pending_ids.append(req_id)
+                event = register_approval(req_id, process.stdin, evt)
+
+                notifier = getattr(self, "approval_notifier", None)
+                if notifier:
+                    await notifier(agent, req_id, evt)
+
+                try:
+                    await asyncio.wait_for(event.wait(), timeout=120)
+                    logger.info(f"[Engine] ✅ Approval {req_id} resolved, continuing...")
+                except asyncio.TimeoutError:
+                    logger.error(f"[Engine] ⏰ Approval {req_id} timed out after 120s")
+                    clear_approval(req_id)
+                    break
+        except asyncio.TimeoutError:
             logger.error(f"⏰ {agent.name} stream timeout after {timeout}s")
         finally:
             stderr_task.cancel()
-            # Clean up any pending approvals
-            for req_id in approval_events:
+            for req_id in pending_ids:
                 clear_approval(req_id)
 
-        return buffer.encode("utf-8") if isinstance(buffer, str) else buffer, \
-               stderr_buffer.encode("utf-8") if isinstance(stderr_buffer, str) else stderr_buffer
+        if process.stdin:
+            closer = getattr(process.stdin, "close", None)
+            is_closing = getattr(process.stdin, "is_closing", None)
+            if callable(closer) and not (is_closing() if callable(is_closing) else False):
+                closer()
+        await process.wait()
+
+        return buffer.encode("utf-8"), stderr_buffer.encode("utf-8")
 
     def _get_stats(self, name: str) -> RunnerStats:
         if name not in self.stats:
