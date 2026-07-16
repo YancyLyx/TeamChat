@@ -18,7 +18,36 @@ export default function ChatRoom({ wsMessages, connectionStatus, sessionId }) {
 
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight }, [chatMessages])
 
-  const handleApprovalDecision = useCallback((messageId, decision) => {
+  const handleApprovalDecision = useCallback(async (messageId, decision, requestId) => {
+    if (requestId) {
+      try {
+        const res = await fetch(`${API_BASE}/approval`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ request_id: requestId, decision }),
+        })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          setChatMessages((prev) => [...prev, {
+            id: `approval-error-${messageId}`,
+            kind: 'system',
+            agent: 'system',
+            content: err.detail || `审批请求失败 (${res.status})`,
+            timestamp: new Date().toISOString(),
+          }])
+          return
+        }
+      } catch {
+        setChatMessages((prev) => [...prev, {
+          id: `approval-error-${messageId}`,
+          kind: 'system',
+          agent: 'system',
+          content: '审批请求失败：无法连接 API',
+          timestamp: new Date().toISOString(),
+        }])
+        return
+      }
+    }
     setResolvedApprovals((prev) => new Set(prev).add(messageId))
     setChatMessages((prev) => [
       ...prev,
@@ -153,8 +182,8 @@ export default function ChatRoom({ wsMessages, connectionStatus, sessionId }) {
           const enriched = msg.kind === 'approval'
             ? {
                 ...msg,
-                onApprove: () => handleApprovalDecision(msg.id, 'allow'),
-                onDeny: () => handleApprovalDecision(msg.id, 'deny'),
+                onApprove: () => handleApprovalDecision(msg.id, 'allow', msg.request_id),
+                onDeny: () => handleApprovalDecision(msg.id, 'deny', msg.request_id),
               }
             : msg
           return <ChatMessage key={msg.id || i} message={enriched} />

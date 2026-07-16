@@ -9,19 +9,20 @@ and writes the control_response back to the Claude process stdin.
 import asyncio
 import json
 import logging
+from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger("teamchat.engine")
 
 router = APIRouter(prefix="/api/approval", tags=["approval"])
 
-# In-memory store: request_id -> (stdin_writer, event_data)
+# In-memory store: request_id -> stdin writer for active Claude process
 _pending_approvals: dict[str, asyncio.StreamWriter] = {}
 
 
-def register_approval(request_id: str, stdin_writer: asyncio.StreamWriter, event_data: dict = None):
+def register_approval(request_id: str, stdin_writer: asyncio.StreamWriter, event_data: dict | None = None):
     """Called by runner.py when Claude emits a control_request."""
     _pending_approvals[request_id] = stdin_writer
     logger.info(f"[Engine] 🔒 Approval requested: {request_id}")
@@ -32,38 +33,42 @@ def clear_approval(request_id: str):
 
 
 class ApprovalRequest(BaseModel):
-    request_id: str
-    decision: str  # "allow" or "deny"
+    request_id: str = Field(..., min_length=1)
+    decision: Literal["allow", "deny"]
+
+
+def build_control_response(request_id: str, decision: str) -> str:
+    """Build Claude CLI control_response JSON (ADR-003 §3.5)."""
+    response_msg = (
+        {"behavior": "allow", "updatedInput": {}}
+        if decision == "allow"
+        else {"behavior": "deny", "message": "The user denied this tool use."}
+    )
+    return json.dumps({
+        "type": "control_response",
+        "response": {
+            "subtype": "success",
+            "request_id": request_id,
+            "response": response_msg,
+        },
+    }, ensure_ascii=False) + "\n"
 
 
 @router.post("")
-async def handle_approval(request: Request, body: ApprovalRequest):
+async def handle_approval(body: ApprovalRequest):
     """Handle human decision on a Claude tool approval request."""
     stdin_writer = _pending_approvals.get(body.request_id)
     if not stdin_writer:
         raise HTTPException(status_code=404, detail="Approval request not found or already handled")
 
-    behavior = "allow" if body.decision == "allow" else "deny"
-    response_msg = {
-        "behavior": "allow",
-        "updatedInput": {},
-    } if behavior == "allow" else {
-        "behavior": "deny",
-        "message": "The user denied this tool use.",
-    }
+    control_response = build_control_response(body.request_id, body.decision)
 
-    control_response = json.dumps({
-        "type": "control_response",
-        "response": {
-            "subtype": "success",
-            "request_id": body.request_id,
-            "response": response_msg,
-        },
-    }, ensure_ascii=False) + "\n"
-
-    # Write to Claude's stdin — the runner is waiting for this
-    stdin_writer.write(control_response.encode("utf-8"))
-    await stdin_writer.drain()
+    try:
+        stdin_writer.write(control_response.encode("utf-8"))
+        await stdin_writer.drain()
+    except (BrokenPipeError, ConnectionResetError, OSError) as exc:
+        clear_approval(body.request_id)
+        raise HTTPException(status_code=410, detail=f"Claude process no longer accepting input: {exc}") from exc
 
     clear_approval(body.request_id)
     logger.info(f"[Engine] ✅ Approval {body.request_id}: {body.decision}")
