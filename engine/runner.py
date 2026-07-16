@@ -140,6 +140,68 @@ class AgentRunner:
         self.stats: dict[str, RunnerStats] = {}
         self._sessions: dict[str, bool] = {}  # agent_name -> has_active_session
 
+    async def _read_claude_stream(self, process, timeout: float, agent: AgentIdentity):
+        """Read Claude stdout line-by-line, handling control_request (approval) mid-stream."""
+        import asyncio as _asyncio
+        from api.routes.approval import register_approval, clear_approval
+
+        buffer = ""
+        stderr_buffer = ""
+        approval_events: dict[str, _asyncio.Event] = {}
+
+        # Read stderr concurrently
+        async def read_stderr():
+            nonlocal stderr_buffer
+            if process.stderr:
+                while True:
+                    line = await process.stderr.readline()
+                    if not line:
+                        break
+                    stderr_buffer += line.decode("utf-8", errors="replace")
+
+        stderr_task = _asyncio.create_task(read_stderr())
+
+        try:
+            while True:
+                line = await _asyncio.wait_for(
+                    process.stdout.readline(), timeout=timeout
+                )
+                if not line:
+                    break
+                line_str = line.decode("utf-8", errors="replace")
+                buffer += line_str
+
+                # Check for control_request (tool approval)
+                try:
+                    if line_str.strip().startswith("{"):
+                        evt = json.loads(line_str.strip())
+                        if evt.get("type") == "control_request":
+                            req_id = evt.get("request_id", "")
+                            tool_name = evt.get("request", {}).get("tool_name", "")
+                            logger.info(f"[Engine] 🔒 Approval: {tool_name} ({req_id})")
+
+                            # Register for API
+                            register_approval(req_id, process.stdin)
+                            # Create event for this method to wait on
+                            event = _asyncio.Event()
+                            approval_events[req_id] = event
+
+                            # Wait for human response (via /api/approval)
+                            await _asyncio.wait_for(event.wait(), timeout=120)
+                            logger.info(f"[Engine] ✅ Approval {req_id} resolved, continuing...")
+                except (json.JSONDecodeError, KeyError):
+                    pass
+        except _asyncio.TimeoutError:
+            logger.error(f"⏰ {agent.name} stream timeout after {timeout}s")
+        finally:
+            stderr_task.cancel()
+            # Clean up any pending approvals
+            for req_id in approval_events:
+                clear_approval(req_id)
+
+        return buffer.encode("utf-8") if isinstance(buffer, str) else buffer, \
+               stderr_buffer.encode("utf-8") if isinstance(stderr_buffer, str) else stderr_buffer
+
     def _get_stats(self, name: str) -> RunnerStats:
         if name not in self.stats:
             self.stats[name] = RunnerStats(agent_name=name)
@@ -207,10 +269,16 @@ class AgentRunner:
                 cwd=str(cwd),
             )
 
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=task.timeout_seconds,
-            )
+            if agent.cli == "claude":
+                # Line-by-line: handle control_request (approval) mid-stream
+                stdout, stderr = await self._read_claude_stream(
+                    process, task.timeout_seconds, agent
+                )
+            else:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=task.timeout_seconds,
+                )
         except asyncio.TimeoutError:
             logger.error(f"⏰ {agent.name} timed out after {task.timeout_seconds}s")
             try:
