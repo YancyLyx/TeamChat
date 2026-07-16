@@ -168,7 +168,7 @@ class E2EMockRunner(AgentRunner):
         prompt = task.full_prompt()
         prompt_lower = prompt.lower()
 
-        if "人类在聊天室发了" in prompt:
+        if "人类在聊天室发了" in prompt and "请简短回复一句问候" in prompt:
             await asyncio.sleep(MOCK_GREETING_DELAY_SECONDS)
             output = f"{agent.name} {MOCK_GREETING_REPLY_SUFFIX}"
             duration_ms = int((time.monotonic() - started_ms) * 1000)
@@ -176,7 +176,7 @@ class E2EMockRunner(AgentRunner):
 
         if "你是 TeamChat 项目的架构师" in prompt:
             await asyncio.sleep(MOCK_GREETING_DELAY_SECONDS)
-            output = "ANSWER: TeamChat 运行正常，三只猫在线。"
+            output = "TeamChat 运行正常，三只猫在线。"
             duration_ms = int((time.monotonic() - started_ms) * 1000)
             return self._build_result(agent, task, output, duration_ms=duration_ms)
 

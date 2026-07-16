@@ -17,6 +17,11 @@ from engine.message_parser import parse_message, build_cici_analysis_prompt
 from engine.runner import AgentTask, AgentResult
 
 
+def new_unblocked_tasks(task_table, pending_before: set[int]):
+    """Return pending unblocked tasks created after analysis (avoid re-dispatching stale rows)."""
+    return [t for t in task_table.unblocked_tasks() if t.id not in pending_before]
+
+
 async def _spawn_with_session(agent, task, runner, session_store,
                                teamchat_session_id) -> AgentResult:
     """Spawn agent: resume stored CLI session ID, or cold-start and capture it."""
@@ -149,6 +154,8 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
         store = request.app.state.store
         router = request.app.state.router
         session_store = request.app.state.session_store
+        task_table = request.app.state.task_table
+        pending_before = {t.id for t in task_table.list_tasks(status="pending")}
 
         analysis_prompt = build_cici_analysis_prompt(content)
         engine_log.info(f"🤔 No @mention → spawning cici咪 for analysis")
@@ -169,9 +176,8 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
             "data": {"kind": "agent_reply", "agent": "cici咪", "content": analysis[:500], "timestamp": now},
         })
 
-        # ---- Auto-dispatch: check task_table for new tasks after cici咪 analysis ----
-        task_table = request.app.state.task_table
-        unblocked = task_table.unblocked_tasks()
+        # ---- Auto-dispatch: newly created unblocked tasks after cici咪 analysis ----
+        unblocked = new_unblocked_tasks(task_table, pending_before)
         if unblocked:
             engine_log.info(f"🚀 Auto-dispatching {len(unblocked)} unblocked task(s)")
         for task in unblocked:

@@ -39,6 +39,6 @@ class TestAnalysisPrompt:
     def test_prompt_structure(self):
         prompt = build_cici_analysis_prompt("add refresh button")
         assert "add refresh button" in prompt
-        assert "ANSWER:" in prompt
-        assert "TASK:" in prompt
-        assert "CLARIFY:" in prompt
+        assert "mcp__teamchat__create_task" in prompt
+        assert "create_task" in prompt
+        assert "depends_on" in prompt
