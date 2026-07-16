@@ -44,7 +44,7 @@
 
 cici咪 通过 **MCP 工具** 管理任务表，不是写 `TASK:#14:agent=coco咪:...` 让 Engine 解析。工具提供：
 
-- `create_task(agent, title, depends_on[])` → 返回 task_id
+- `create_task(agent, title, depends_on[])` → 返回 task_id~~。2026-07-16 修订: 增加 `prompt` 字段，存储 cici咪 写给目标 agent 的完整指令，Engine spawn 时直接使用。`create_task(agent, title, prompt, depends_on[])` → task_id~~
 - `update_task(task_id, status)` → status: done / failed
 - `list_tasks(status_filter)` → 返回任务表
 - `assign_task(task_id, agent)` → 改派
@@ -190,6 +190,7 @@ POST /api/chat  →  parse_message("给 Dashboard 加个刷新按钮")
   → parsed.mentions = []
   → parsed.needs_cici_analysis = True
   ↓
+<!-- 2026-07-16: 无 @mention 路由待实现。当前 chat.py 缺少此逻辑。 -->
 Engine spawn Claude（带 --resume 5fbaf844-...）
   stdin: {"type":"user","message":{"role":"user","content":[{"type":"text","text":"人类: 给 Dashboard 加个刷新按钮"}]}}
   ↓
@@ -341,6 +342,18 @@ Engine 不判断 done/fail。流程永远是：agent 完成 → Engine 推送 te
 | Agent | 方式 |
 |---|---|
 | Claude | control_request → 前端审批卡片 → 点击 [允许]/[拒绝] → Engine 写 control_response |
+
+> **2026-07-16 修订: `/api/approval` 端点设计**
+> 
+> ```
+> POST /api/approval {request_id: "xxx", decision: "allow"}
+>   ↓
+> Engine 构建 control_response JSON → 写入 Claude stdin
+>   ↓
+> Claude 继续执行
+> ```
+> 
+> 审批卡片不再是摆设。后端收到 POST 后查 pending_approvals，构建 `{"type":"control_response","response":{"subtype":"success","request_id":"xxx","response":{"behavior":"allow"}}}` 写入 Claude 进程的 stdin。
 | Codex | exec 模式自动执行（sandbox 保护）。危险命令被沙箱拦截 |
 | Cursor | print 模式自动执行。危险命令被 Allowlist 拦截 |
 
@@ -434,10 +447,10 @@ Agent (cici咪)                  MCP Server (TeamChat)
 ```
 teamchat MCP Server (engine/mcp_server.py):
   tools:
-    create_task(agent, title, depends_on) → task_id
-    update_task(task_id, status)          → ok
-    list_tasks(status_filter)             → [...]
-    get_session_info()                    → {agents, session_ids, status}
+    create_task(agent, title, prompt, depends_on) → task_id  <!-- 2026-07-16: +prompt -->
+    update_task(task_id, status)                   → ok
+    list_tasks(status_filter)                      → [...]
+    get_session_info()                             → {agents, session_ids, status}
 ```
 
 ### 7.4 启动方式
@@ -675,11 +688,26 @@ cici咪 的表述可能变化——"交给coco咪" vs "这个coco咪来做" vs "
 | 附件 | 📎 按钮 → `<input type="file">` → 取绝对路径 |
 | Loading | 发送中显示 spinner，禁用输入 |
 
-#### E. 右侧面板 — Stats + Live 双 Tab
+#### E. 右侧面板 — Tasks + Stats + Live 三 Tab  <!-- 2026-07-16: +Tasks Tab -->
 
 ```
 ┌─ Right Panel ────────────────────────────────────────┐
-│ [📊 Stats] [🔴 Live]                                 │  ← 顶层 Tab
+│ [📋 Tasks] [📊 Stats] [🔴 Live]                      │  ← 顶层三 Tab
+│                                                       │
+│ ── Tasks Tab (选中时) ──────────────────────────    │  <!-- 2026-07-16 NEW -->
+│                                                       │
+│  ── Pending (1) ──                                   │
+│  #14 "加个刷新按钮" → coco咪                           │
+│                                                       │
+│  ── Running (1) ──                                   │
+│  #15 "Review PR #22" → soso咪                         │
+│                                                       │
+│  ── Done (5) ──                                      │
+│  #13 "架构设计" → cici咪       ✅                      │
+│  #12 "E2E 测试" → soso咪       ✅                      │
+│  ...                                                  │
+│                                                       │
+│ TaskCard: 标题 + agent + 状态图标 + Issue 链接          │
 │                                                       │
 │ ── Stats Tab (选中时) ──────────────────────────     │
 │                                                       │
