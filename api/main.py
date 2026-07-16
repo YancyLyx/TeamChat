@@ -44,7 +44,7 @@ from engine.runtime import create_runtime
 from engine.orchestrator import Orchestrator
 from engine.session_store import create_session_store
 
-from api.routes import agents, sessions, tasks, chat, teamchat_sessions
+from api.routes import agents, sessions, tasks, chat, teamchat_sessions, approval
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +150,7 @@ def create_app() -> FastAPI:
     app.include_router(tasks.router)
     app.include_router(chat.router)
     app.include_router(teamchat_sessions.router)
-
+    app.include_router(approval.router)
     return app
 
 
