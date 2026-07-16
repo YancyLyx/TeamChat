@@ -151,77 +151,68 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
         session_store = request.app.state.session_store
 
         analysis_prompt = build_cici_analysis_prompt(content)
+        engine_log.info(f"🤔 No @mention → spawning cici咪 for analysis")
         router.mark_busy(AGENT_CICI)
         try:
             result = await _spawn_with_session(
-                AGENT_CICI, AgentTask(prompt=analysis_prompt, timeout_seconds=60),
+                AGENT_CICI, AgentTask(prompt=analysis_prompt, timeout_seconds=120),
                 runner, session_store, teamchat_session_id,
             )
         finally:
             router.mark_free(AGENT_CICI)
         analysis = result.output.strip()
 
-        if analysis.startswith("ANSWER:"):
-            answer = analysis.removeprefix("ANSWER:").strip()
-            await ws_mgr.broadcast({
-                "type": "chat_message",
-                "data": {"kind": "agent_reply", "agent": "cici咪", "content": answer, "timestamp": now},
-            })
-            return ChatResponse(target_agent="cici咪", task_prompt=content, status="answered")
+        engine_log.info(f"📝 cici咪 analysis result ({len(analysis)} chars)")
+        # Always show cici咪's output in chat bubble
+        await ws_mgr.broadcast({
+            "type": "chat_message",
+            "data": {"kind": "agent_reply", "agent": "cici咪", "content": analysis[:500], "timestamp": now},
+        })
 
-        elif analysis.startswith("TASK:"):
-            rest = analysis.removeprefix("TASK:").strip()
-            parts = rest.split(":", 1)
-            task_type = parts[0].strip() if parts else "architecture"
-            task_desc = parts[1].strip() if len(parts) > 1 else rest
+        # ---- Auto-dispatch: check task_table for new tasks after cici咪 analysis ----
+        task_table = request.app.state.task_table
+        unblocked = task_table.unblocked_tasks()
+        if unblocked:
+            engine_log.info(f"🚀 Auto-dispatching {len(unblocked)} unblocked task(s)")
+        for task in unblocked:
+            engine_log.info(f"   → #{task.id} '{task.title}' to {task.agent}")
+            # Update task status
+            task_table.update(task.id, status="running")
+            # Spawn target agent
+            target_agent = None
+            for a in ALL_AGENTS:
+                if a.name == task.agent:
+                    target_agent = a
+                    break
+            if target_agent and task.description:
+                agent_task = AgentTask(prompt=task.description, timeout_seconds=300)
+                router.mark_busy(target_agent)
+                try:
+                    agent_result = await _spawn_with_session(
+                        target_agent, agent_task, runner, session_store, teamchat_session_id,
+                    )
+                finally:
+                    router.mark_free(target_agent)
 
-            from engine.router import Router, TaskType
-            try:
-                dispatch = Router().dispatch(TaskType(task_type))
-            except ValueError:
-                dispatch = Router().dispatch(TaskType.ARCHITECTURE)
-            target = dispatch.agent
-
-            task = AgentTask(prompt=task_desc, context=f"cici咪 assigned: {task_desc}")
-            router.mark_busy(target)
-            try:
-                result = await _spawn_with_session(
-                    target, task, runner, session_store, teamchat_session_id,
+                store.log(
+                    agent_name=target_agent.name, prompt=task.description,
+                    output=agent_result.output, exit_code=agent_result.exit_code,
+                    duration_ms=agent_result.duration_ms, token_usage=agent_result.token_usage,
+                    task_type="chat_task", teamchat_session_id=teamchat_session_id,
+                    started_at=agent_result.started_at, finished_at=agent_result.finished_at,
                 )
-            finally:
-                router.mark_free(target)
 
-            call_id = store.log(
-                agent_name=target.name, prompt=task.full_prompt(),
-                output=result.output, exit_code=result.exit_code,
-                duration_ms=result.duration_ms, token_usage=result.token_usage,
-                task_type="chat_task", teamchat_session_id=teamchat_session_id,
-                started_at=result.started_at, finished_at=result.finished_at,
-            )
+                task_table.update(task.id, status="done" if agent_result.success else "failed",
+                                  output_summary=agent_result.output[:500])
+                engine_log.info(f"   ✅ #{task.id} {task.agent}: {'done' if agent_result.success else 'failed'}")
 
-            await ws_mgr.broadcast({
-                "type": "chat_message",
-                "data": {"kind": "agent_reply", "agent": target.name, "content": result.output[:500],
-                         "timestamp": now, "session_id": call_id},
-            })
-            return ChatResponse(session_id=call_id, target_agent=target.name,
-                                task_prompt=task_desc, status="completed" if result.success else "failed")
+                await ws_mgr.broadcast({
+                    "type": "chat_message",
+                    "data": {"kind": "agent_reply", "agent": target_agent.name,
+                             "content": agent_result.output[:500], "timestamp": now},
+                })
 
-        elif analysis.startswith("CLARIFY:"):
-            question = analysis.removeprefix("CLARIFY:").strip()
-            await ws_mgr.broadcast({
-                "type": "chat_message",
-                "data": {"kind": "agent_reply", "agent": "cici咪",
-                         "content": f"Need clarification: {question}", "timestamp": now},
-            })
-            return ChatResponse(target_agent="cici咪", task_prompt=question, status="clarify")
-
-        else:
-            await ws_mgr.broadcast({
-                "type": "chat_message",
-                "data": {"kind": "agent_reply", "agent": "cici咪", "content": analysis[:500], "timestamp": now},
-            })
-            return ChatResponse(target_agent="cici咪", task_prompt=content, status="responded")
+        return ChatResponse(target_agent="cici咪", task_prompt=content, status="analyzed")
 
     # ---- MULTIPLE @mentions: broadcast ----
     if len(parsed.mentions) > 1:
