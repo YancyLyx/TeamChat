@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import ChatMessage from './ChatMessage.jsx'
 import ChatInput from './ChatInput.jsx'
-import { WELCOME_MESSAGE } from '../constants/agents.js'
+import { WELCOME_MESSAGE, UI_EMOJI } from '../constants/agents.js'
 
 const API_BASE = '/api'
 
 export default function ChatRoom({ wsMessages, connectionStatus, sessionId }) {
   const [chatMessages, setChatMessages] = useState([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [resolvedApprovals, setResolvedApprovals] = useState(() => new Set())
   const scrollRef = useRef(null)
   const lastWcRef = useRef(0)
@@ -92,6 +93,15 @@ export default function ChatRoom({ wsMessages, connectionStatus, sessionId }) {
 
   useEffect(() => { fetchInit() }, [fetchInit])
 
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true)
+    try {
+      await fetchInit()
+    } finally {
+      setRefreshing(false)
+    }
+  }, [fetchInit])
+
   const handleSend = useCallback(async (content) => {
     try {
       const body = { content }
@@ -166,6 +176,22 @@ export default function ChatRoom({ wsMessages, connectionStatus, sessionId }) {
   return (
     <div className="flex flex-col h-full bg-white">
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4" style={{ scrollBehavior: 'smooth' }}>
+        {/* Refresh header */}
+        <div className="flex items-center justify-between mb-3 px-0.5">
+          <span className="text-xs text-gray-400 font-medium select-none">
+            {chatMessages.length > 0 ? `${chatMessages.length} 条消息` : "" }
+          </span>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing || loading}
+            className="flex items-center justify-center w-8 h-8 min-w-8 shrink-0 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors active:bg-gray-200 touch-manipulation"
+            title="刷新消息"
+          >
+            <span className={`inline-block text-base leading-none ${refreshing ? 'animate-spin' : '' }`}>
+              {UI_EMOJI.refresh}
+            </span>
+          </button>
+        </div>
         {loading && (
           <div className="space-y-3 py-8">
             {[1, 2, 3].map((i) => (
