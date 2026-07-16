@@ -190,8 +190,7 @@ POST /api/chat  →  parse_message("给 Dashboard 加个刷新按钮")
   → parsed.mentions = []
   → parsed.needs_cici_analysis = True
   ↓
-<!-- 2026-07-16: 无 @mention 路由待实现。当前 chat.py 缺少此逻辑。 -->
-Engine spawn Claude（带 --resume 5fbaf844-...）
+Engine spawn Claude（带 --resume 5fbaf844-... + --mcp-config）  <!-- 2026-07-16: 已实现 #82 #83 -->
   stdin: {"type":"user","message":{"role":"user","content":[{"type":"text","text":"人类: 给 Dashboard 加个刷新按钮"}]}}
   ↓
 聊天室显示:
@@ -688,7 +687,7 @@ cici咪 的表述可能变化——"交给coco咪" vs "这个coco咪来做" vs "
 | 附件 | 📎 按钮 → `<input type="file">` → 取绝对路径 |
 | Loading | 发送中显示 spinner，禁用输入 |
 
-#### E. 右侧面板 — Tasks + Stats + Live 三 Tab  <!-- 2026-07-16: +Tasks Tab -->
+#### E. 右侧面板 — Tasks + Stats + Live 三 Tab  <!-- 2026-07-16: Stats ✅ Live ✅ Tasks 🔴 待实现 -->
 
 ```
 ┌─ Right Panel ────────────────────────────────────────┐
@@ -757,14 +756,14 @@ cici咪 的表述可能变化——"交给coco咪" vs "这个coco咪来做" vs "
 └───────────────────────────────────────────────────────┘
 ```
 
-**StatsPanel 组件 (ADR-003 §9.2)：**  🔴 待实现
+**StatsPanel 组件 (ADR-003 §9.2)：**  ✅ 已实现 (#71 #72 #73, 2026-07-16)
 
 | Tab | 内容 | 数据源 | 状态 |
 |---|---|---|---|
-| L1 效能 | 每只咪: tasks 完成数 + 成功率（进度条）+ avg 耗时 + token 消耗 + tool calls 次数 | `/api/stats` | 🔴 |
-| L2 效率 | Engine Mode、Queue、任务周期/等待/Review 时间、阻塞数 | `/api/engine` + `/api/tasks/table/stats` | 🔴 |
-| L3 解放 | 自动化率（进度条）、人工介入次数、消息→完成时间 | 计算值 | 🔴 |
-| 底部 | 本周摘要: Done 数、成功率、总 Token | `/api/stats` 聚合 | 🔴 |
+| L1 效能 | 每只咪: tasks 完成数 + 成功率（进度条）+ avg 耗时 + token 消耗 + tool calls 次数 | `/api/stats` | ✅ |
+| L2 效率 | Engine Mode、Queue、任务统计（Total/Done/Pending/Running）| `/api/engine` + `/api/tasks/table/stats` | ✅ |
+| L3 解放 | 自动化率（进度条）、人工介入次数、消息→完成时间 | `/api/stats` 计算 | ✅ |
+| 底部 | 本周摘要: Done 数、成功率、总 Token | `/api/stats` 聚合 | ✅ |
 
 **LivePanel 组件：** Engine 模式 + Active Agents (实时状态灯 + 耗时) + Queue 长度 + 最近 10 条事件流 (WebSocket 实时推送)
 
