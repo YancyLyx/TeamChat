@@ -59,14 +59,14 @@ ALL_AGENTS = (AGENT_CICI, AGENT_COCO, AGENT_SOSO)
 # ---- CLI command templates ----
 
 CLI_TEMPLATES: dict[str, list[str]] = {
-    "claude": ["claude", "--print", "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits", f"--mcp-config={Path(__file__).resolve().parent.parent / '.teamchat' / 'mcp-config.json'}", "{prompt}"],
+    "claude": ["claude", "--print", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio", f"--mcp-config={Path(__file__).resolve().parent.parent / '.teamchat' / 'mcp-config.json'}", "{prompt}"],
     "codex": ["codex", "exec", "--json", "{prompt}"],
     "cursor": ["agent", "--print", "--output-format", "stream-json", "{prompt}"],
 }
 
 # Templates with --continue / --resume for session context
 CLI_CONTINUE_TEMPLATES: dict[str, list[str]] = {
-    "claude": ["claude", "--print", "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits", f"--mcp-config={Path(__file__).resolve().parent.parent / '.teamchat' / 'mcp-config.json'}", "--continue", "{prompt}"],
+    "claude": ["claude", "--print", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio", f"--mcp-config={Path(__file__).resolve().parent.parent / '.teamchat' / 'mcp-config.json'}", "--continue", "{prompt}"],
     "codex": ["codex", "exec", "resume", "--last", "--json", "{prompt}"],
     "cursor": ["agent", "--print", "--output-format", "stream-json", "--continue", "{prompt}"],
 }
@@ -120,7 +120,7 @@ class Config:
         if session_id:
             if agent.cli == "claude":
                 return [cli_path, "--print", "--verbose", "--output-format", "stream-json",
-                        "--permission-mode", "acceptEdits",
+                        "--permission-prompt-tool", "stdio",
                         f"--mcp-config={Path(__file__).resolve().parent.parent / '.teamchat' / 'mcp-config.json'}",
                         "--resume", session_id, prompt]
             if agent.cli == "codex":
