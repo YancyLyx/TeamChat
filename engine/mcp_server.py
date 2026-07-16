@@ -24,8 +24,14 @@ logger = logging.getLogger("teamchat.mcp")
 # ---- Tool implementations ----
 
 
+# Lazy override for tests (monkeypatch this to inject a TaskTable).
+_task_table_override = None
+
+
 def _get_task_table():
     """Lazy init TaskTable connected to the current project."""
+    if _task_table_override is not None:
+        return _task_table_override
     from engine.task_table import create_task_table
     from engine.config import load_config
     config = load_config()
@@ -141,30 +147,44 @@ def send_response(id_val: Any, result: Any):
     response = {"jsonrpc": "2.0", "id": id_val, "result": result}
     sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
     sys.stdout.flush()
+    return response
 
 
 def send_error(id_val: Any, code: int, message: str):
     response = {"jsonrpc": "2.0", "id": id_val, "error": {"code": code, "message": message}}
     sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
     sys.stdout.flush()
+    return response
 
 
-def handle_request(request: dict):
-    """Process one JSON-RPC request."""
+def tool_content(result: dict, *, is_error: bool = False) -> dict:
+    """Wrap tool handler output in MCP tools/call result shape."""
+    payload = {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}
+    if is_error:
+        payload["isError"] = True
+    return payload
+
+
+def process_request(request: dict) -> dict | None:
+    """Process one JSON-RPC request and return the response dict (None for notifications)."""
     req_id = request.get("id")
     method = request.get("method", "")
     params = request.get("params", {})
 
     if method == "initialize":
         logger.info("🚀 MCP Server initialized")
-        return send_response(req_id, {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {"tools": {}},
-            "serverInfo": {"name": "teamchat", "version": "0.1.0"},
-        })
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "teamchat", "version": "0.1.0"},
+            },
+        }
 
     if method == "notifications/initialized":
-        return  # No response needed
+        return None
 
     if method == "tools/list":
         tools_list = [
@@ -175,31 +195,60 @@ def handle_request(request: dict):
             }
             for name, info in TOOLS.items()
         ]
-        return send_response(req_id, {"tools": tools_list})
+        return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": tools_list}}
 
     if method == "tools/call":
         tool_name = params.get("name", "")
         tool_args = params.get("arguments", {})
         tool_info = TOOLS.get(tool_name)
         if not tool_info:
-            return send_error(req_id, -32601, f"Unknown tool: {tool_name}")
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"},
+            }
 
         logger.info(f"🔧 {tool_name}({json.dumps(tool_args, ensure_ascii=False)[:200]})")
         try:
             result = tool_info["handler"](tool_args)
-            # Wrap in content array per MCP spec
-            return send_response(req_id, {
-                "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]
-            })
+            is_error = isinstance(result, dict) and "error" in result
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": tool_content(result, is_error=is_error),
+            }
         except Exception as e:
             logger.error(f"❌ {tool_name} failed: {e}")
-            return send_error(req_id, -32000, str(e))
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32000, "message": str(e)},
+            }
 
     if method == "ping":
-        return send_response(req_id, {})
+        return {"jsonrpc": "2.0", "id": req_id, "result": {}}
 
-    # Unknown method — ignore (logging, etc.)
-    logger.debug(f"Unknown method: {method}")
+    if req_id is not None:
+        logger.debug(f"Unknown method: {method}")
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32601, "message": f"Method not found: {method}"},
+        }
+
+    logger.debug(f"Unknown notification: {method}")
+    return None
+
+
+def handle_request(request: dict):
+    """Process one JSON-RPC request and write response to stdout."""
+    response = process_request(request)
+    if response is None:
+        return
+    if "error" in response:
+        send_error(response["id"], response["error"]["code"], response["error"]["message"])
+    else:
+        send_response(response["id"], response["result"])
 
 
 TOOL_DESCRIPTIONS = {

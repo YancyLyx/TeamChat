@@ -48,6 +48,10 @@ from api.routes import agents, sessions, tasks, chat, teamchat_sessions
 
 logger = logging.getLogger(__name__)
 
+# Ensure teamchat.* loggers are visible under uvicorn (PR #78 engine logging).
+for _name in ("teamchat.engine", "teamchat.chat", "teamchat.mcp"):
+    logging.getLogger(_name).setLevel(logging.INFO)
+
 
 class ConnectionManager:
     """Manages active WebSocket connections for real-time event push."""
