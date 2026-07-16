@@ -93,8 +93,7 @@ TeamChat/
 │   └── agents/                 # 三角色卡
 ├── .teamchat/                  # 运行时数据
 │   ├── teamchat.db             # 统一数据库（3 表）
-│   ├── mcp-config.json         # MCP Server 配置
-│   └── messages/               # MessageBus 目录
+│   └── mcp-config.json         # MCP Server 配置
 ├── CLAUDE.md                   # cici咪 手册
 ├── AGENTS.md                   # 三猫协议
 ├── PROGRESS.md                 # 唯一动态文档
