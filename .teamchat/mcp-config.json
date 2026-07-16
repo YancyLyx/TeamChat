@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "teamchat": {
+      "command": "python3",
+      "args": ["engine/mcp_server.py"],
+      "cwd": "/Users/yanxinluo/Documents/PycharmProjects/TeamChat"
+    }
+  }
+}
