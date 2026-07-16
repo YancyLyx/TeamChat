@@ -18,14 +18,16 @@ logger = logging.getLogger("teamchat.engine")
 
 router = APIRouter(prefix="/api/approval", tags=["approval"])
 
-# In-memory store: request_id -> stdin writer for active Claude process
-_pending_approvals: dict[str, asyncio.StreamWriter] = {}
+# In-memory store: request_id -> (stdin_writer, asyncio.Event)
+_pending_approvals: dict[str, tuple[asyncio.StreamWriter, asyncio.Event]] = {}
 
 
 def register_approval(request_id: str, stdin_writer: asyncio.StreamWriter, event_data: dict | None = None):
     """Called by runner.py when Claude emits a control_request."""
-    _pending_approvals[request_id] = stdin_writer
+    event = asyncio.Event()
+    _pending_approvals[request_id] = (stdin_writer, event)
     logger.info(f"[Engine] 🔒 Approval requested: {request_id}")
+    return event  # Return event so caller can await it
 
 
 def clear_approval(request_id: str):
@@ -57,10 +59,11 @@ def build_control_response(request_id: str, decision: str) -> str:
 @router.post("")
 async def handle_approval(body: ApprovalRequest):
     """Handle human decision on a Claude tool approval request."""
-    stdin_writer = _pending_approvals.get(body.request_id)
-    if not stdin_writer:
+    entry = _pending_approvals.get(body.request_id)
+    if not entry:
         raise HTTPException(status_code=404, detail="Approval request not found or already handled")
 
+    stdin_writer, event = entry
     control_response = build_control_response(body.request_id, body.decision)
 
     try:
@@ -70,6 +73,7 @@ async def handle_approval(body: ApprovalRequest):
         clear_approval(body.request_id)
         raise HTTPException(status_code=410, detail=f"Claude process no longer accepting input: {exc}") from exc
 
+    event.set()  # Signal the runner to continue reading stdout
     clear_approval(body.request_id)
     logger.info(f"[Engine] ✅ Approval {body.request_id}: {body.decision}")
 
