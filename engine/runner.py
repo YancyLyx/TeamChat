@@ -257,6 +257,10 @@ class AgentRunner:
                     for item in evt.get("message", {}).get("content", []):
                         if item.get("type") == "text":
                             text_parts.append(item.get("text", ""))
+                        elif item.get("type") == "tool_use":
+                            tname = item.get("name", "?")
+                            if "teamchat" in tname or "mcp" in tname:
+                                logger.info(f"[Engine] 🔧 MCP tool: {tname}({json.dumps(item.get('input', {}), ensure_ascii=False)[:200]})")
                 elif etype == "result":
                     if "result" in evt and isinstance(evt["result"], str) and not text_parts:
                         text_parts.append(evt["result"])

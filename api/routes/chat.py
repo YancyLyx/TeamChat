@@ -32,8 +32,11 @@ async def _spawn_with_session(agent, task, runner, session_store,
 
 GREETING_KEYWORDS = {"大家好", "hello", "hi", "在吗", "有人在吗", "你好", "你们好", "嗨"}
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("teamchat.chat")
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+# Engine-level logging — visible in uvicorn terminal
+engine_log = logging.getLogger("teamchat.engine")
 
 
 class ChatRequest(BaseModel):
@@ -59,6 +62,8 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
     now = datetime.now(timezone.utc).isoformat()
     teamchat_session_id = chat_req.teamchat_session_id
 
+    engine_log.info(f"💬 Human: '{content[:80]}' | session={teamchat_session_id} | mentions={[m.name for m in parsed.mentions]}")
+
     # Broadcast + persist human message
     await ws_mgr.broadcast({
         "type": "chat_message",
@@ -81,6 +86,8 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
     )
 
     if is_greeting:
+        engine_log.info("👋 Greeting detected → broadcasting to all 3 agents")
+
         runner = request.app.state.runner
         store = request.app.state.store
         router = request.app.state.router
@@ -95,6 +102,7 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
 
         # Parallel: all three agents reply concurrently
         async def greet_one(agent):
+            engine_log.info(f"🚀 Spawning {agent.name} ({agent.cli}) | session={teamchat_session_id}")
             router.mark_busy(agent)
             task = AgentTask(prompt=greeting_msg, timeout_seconds=60)
             try:
