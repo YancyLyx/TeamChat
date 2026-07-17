@@ -7,8 +7,6 @@ Run:
 
 from __future__ import annotations
 
-import time
-
 import pytest
 from playwright.sync_api import Page, expect
 
@@ -30,12 +28,6 @@ def _wait_connected(page: Page, timeout: float = 15_000) -> None:
 
 def _wait_loaded(page: Page, timeout: float = 15_000) -> None:
     expect(page.locator(REFRESH_BTN)).to_be_enabled(timeout=timeout)
-
-
-def _slow_sessions_route(route) -> None:
-    if route.request.method == "GET" and "/api/sessions" in route.request.url:
-        time.sleep(0.4)
-    route.continue_()
 
 
 class TestRefreshButtonRender:
@@ -88,12 +80,23 @@ class TestRefreshButtonLoading:
         _wait_connected(page)
         _wait_loaded(page)
 
-        page.route("**/api/sessions*", _slow_sessions_route)
+        blocked: list = []
+
+        def block_sessions(route) -> None:
+            if route.request.method == "GET" and "/api/sessions" in route.request.url:
+                blocked.append(route)
+                return
+            route.continue_()
+
+        page.route("**/api/sessions*", block_sessions)
         btn = page.locator(REFRESH_BTN)
         btn.click()
 
-        expect(btn).to_be_disabled()
+        expect(btn).to_be_disabled(timeout=5_000)
         expect(btn.locator("span.animate-spin")).to_be_visible(timeout=5_000)
+
+        for route in blocked:
+            route.continue_()
         _wait_loaded(page)
         expect(btn).to_be_enabled()
 
@@ -108,6 +111,11 @@ class TestRefreshButtonMobile:
         _goto(page, e2e_servers["dashboard_url"])
         _wait_connected(page)
         _wait_loaded(page)
+
+        # Collapse sidebars so the refresh control is not covered on narrow viewports.
+        toggles = page.locator("header div.flex.items-center.gap-2 > button")
+        toggles.nth(0).click()
+        toggles.nth(1).click()
 
         btn = page.locator(REFRESH_BTN)
         expect(btn).to_be_visible()
