@@ -2,6 +2,7 @@
 import ApprovalCard from './ApprovalCard.jsx'
 import { AGENT_EMOJI, UI_EMOJI } from '../constants/agents.js'
 import { decodeUnicode } from '../utils/unicodeSafe.js'
+import { marked } from 'marked'
 
 const AGENT_BORDERS = {
   'cici咪': 'border-blue-400',
@@ -53,12 +54,35 @@ function cleanCodexJsonl(text) {
   return sawJson && messages.length ? messages.join('\n').trim() : text
 }
 
+function sanitize(html) {
+  if (typeof html !== 'string') return ''
+  return html
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    .replace(/<iframe[\s\S]*?>[\s\S]*?<\/iframe>/gi, '')
+    .replace(/<embed[\s\S]*?>[\s\S]*?<\/embed>/gi, '')
+    .replace(/\bon\w+\s*=\s*"[^"]*"/gi, '')
+    .replace(/\bon\w+\s*=\s*'[^']*'/gi, '')
+    .replace(/href\s*=\s*"javascript:[^"]*"/gi, '')
+    .replace(/href\s*=\s*'javascript:[^']*'/gi, '')
+}
+
+function mdRender(text) {
+  if (!text || typeof text !== 'string') return ''
+  try {
+    return sanitize(marked.parse(text, { async: false, breaks: true }) || '')
+  } catch { return text }
+}
+
 function hlM(text) {
   text = decodeUnicode(text)
   if (!text) return null
   const parts = text.split(/(@(?:cici咪|coco咪|soso咪))/g)
   const cs = { 'cici咪': 'bg-blue-100 text-blue-700', 'coco咪': 'bg-green-100 text-green-700', 'soso咪': 'bg-purple-100 text-purple-700' }
-  return parts.map((p, i) => p.startsWith('@') ? <span key={i} className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${cs[p.slice(1)] || 'bg-gray-100 text-gray-600'}`}>{p}</span> : p)
+  return parts.map((p, i) => {
+    if (p.startsWith('@')) return <span key={i} className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${cs[p.slice(1)] || 'bg-gray-100 text-gray-600'}`}>{p}</span>
+    if (!p) return null
+    return <span key={i} dangerouslySetInnerHTML={{ __html: mdRender(p) }} />
+  })
 }
 
 function ps(text) {
@@ -104,7 +128,7 @@ export default function ChatMessage({ message }) {
             <span className="text-xs text-gray-500 font-medium">你</span>
             <span className="text-sm">{UI_EMOJI.human}</span>
           </div>
-          <div className="bg-blue-500 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm">{content}</div>
+          <div className="bg-blue-500 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed break-words shadow-sm prose prose-invert prose-sm max-w-none">{hlM(content)}</div>
         </div>
       </div>
     )
@@ -121,7 +145,7 @@ export default function ChatMessage({ message }) {
             <span className="text-xs font-medium text-gray-700">{agent}</span>
             <span className="text-[10px] text-gray-400 font-mono">{ft(timestamp)}</span>
           </div>
-          <div className={`bg-gray-50 border-l-2 ${border} rounded-xl rounded-tl-sm px-4 py-2.5 text-sm text-gray-700 leading-relaxed break-words shadow-sm`}>
+          <div className={`bg-gray-50 border-l-2 ${border} rounded-xl rounded-tl-sm px-4 py-2.5 text-sm text-gray-700 leading-relaxed break-words shadow-sm prose prose-sm max-w-none`}>
             <RS text={content} tss={thinking_sections} />
           </div>
         </div>
