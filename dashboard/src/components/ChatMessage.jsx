@@ -2,7 +2,7 @@
 import ApprovalCard from './ApprovalCard.jsx'
 import { AGENT_EMOJI, UI_EMOJI } from '../constants/agents.js'
 import { decodeUnicode } from '../utils/unicodeSafe.js'
-import { marked } from 'marked'
+import { mdRender } from '../utils/markdown.js'
 
 const AGENT_BORDERS = {
   'cici咪': 'border-blue-400',
