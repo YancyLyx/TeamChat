@@ -2,7 +2,7 @@
 import ApprovalCard from './ApprovalCard.jsx'
 import { AGENT_EMOJI, UI_EMOJI } from '../constants/agents.js'
 import { decodeUnicode } from '../utils/unicodeSafe.js'
-import { marked } from 'marked'
+import { mdRender } from '../utils/markdown.js'
 
 const AGENT_BORDERS = {
   'cici咪': 'border-blue-400',
@@ -52,25 +52,6 @@ function cleanCodexJsonl(text) {
     }
   }
   return sawJson && messages.length ? messages.join('\n').trim() : text
-}
-
-function sanitize(html) {
-  if (typeof html !== 'string') return ''
-  return html
-    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
-    .replace(/<iframe[\s\S]*?>[\s\S]*?<\/iframe>/gi, '')
-    .replace(/<embed[\s\S]*?>[\s\S]*?<\/embed>/gi, '')
-    .replace(/\bon\w+\s*=\s*"[^"]*"/gi, '')
-    .replace(/\bon\w+\s*=\s*'[^']*'/gi, '')
-    .replace(/href\s*=\s*"javascript:[^"]*"/gi, '')
-    .replace(/href\s*=\s*'javascript:[^']*'/gi, '')
-}
-
-function mdRender(text) {
-  if (!text || typeof text !== 'string') return ''
-  try {
-    return sanitize(marked.parse(text, { async: false, breaks: true }) || '')
-  } catch { return text }
 }
 
 function hlM(text) {
