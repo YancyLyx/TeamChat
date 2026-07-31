@@ -30,7 +30,7 @@
 | Router 自动分配 | ⚠️ 部分支持 | 只有 @mention 路由，无任务类型路由 |
 | 辩论 → 投票 → 自动裁决 | ❌ 无 | 没有 Conflict Resolver |
 | Agent 自主开 Issue/PR/Review/Merge | ❌ 无 | 没有 GitHub Adapter |
-| 任务拆分（cici咪 判断粒度） | ❌ 无 | 只能创建单任务 |
+| 任务建模（需求 → DAG） | ❌ 无 | 只能创建单任务 |
 | 人类变成观察者 | ❌ 无 | 人类仍需主导流程 |
 | Git Worktree 隔离 | ❌ 无 | 所有 agent 在同一 cwd |
 
@@ -318,22 +318,44 @@ Task Scheduler 执行（沿用 ADR-004）
 
 ---
 
-### Phase 4.2: Task Planner + DAG 调度（任务拆分）
+### Phase 4.2: Task Planner + DAG 调度（任务建模）
 
-**目标**：cici咪 判断任务粒度，小需求直接派发，大需求拆成多步骤 DAG，Engine 按依赖顺序执行。
+**目标**：cici咪 将每个需求建模为 DAG 任务树，Engine 按依赖顺序自动派发。小需求是退化的单节点 DAG，大需求是多步骤 DAG。
 
 **交付物**：
-- `engine/task_planner.py`（拆分逻辑）
+- `engine/task_planner.py`（DAG 建模）
 - Task Scheduler 支持依赖调度（DAG 执行顺序）
 - task_table 的 `depends_on` 字段真正使用
 
-**场景**：
+**场景 1：小需求（退化 DAG）**
+```
+人类: "@coco咪 修一个 CSS bug"
+  ↓
+cici咪 分析 → 建模为单节点 DAG:
+  - Task A: 修复 CSS bug → coco咪
+  ↓
+依赖: 无
+  ↓
+Task Scheduler 派发 A → 完成
+```
+
+**场景 2：标准需求（开发→审查→合并）**
+```
+人类: "给 Dashboard 加刷新按钮"
+  ↓
+cici咪 分析 → 建模为 3 节点 DAG:
+  - Task A: 实现刷新按钮 → coco咪
+  - Task B: Review → soso咪（depends_on=[A]）
+  - Task C: 合并 → cici咪（depends_on=[B]）
+  ↓
+Task Scheduler: A → B → C 顺序执行
+```
+
+**场景 3：大需求（多步骤 DAG）**
 ```
 GitHub 新 Issue: "完整实现 OAuth 2.0 登录"
   ↓
-cici咪 分析后判断需拆分:
-  ↓
-调用 Task Planner 拆分：
+cici咪 分析 → 建模为多步骤 DAG:
   - Task A: 设计 OAuth schema
   - Task B: 实现 /auth/login
   - Task C: 实现 /auth/callback
