@@ -134,7 +134,153 @@ Result + 新 Issue（迭代）
 
 ---
 
-## 分段实施计划
+## 协作闭环（核心缺失）
+
+**ADR-003 承诺的流程**，但上述架构图缺少的关键模块：
+
+### 断点 1：Agent 输出回传
+
+**流程**：
+```
+coco咪 完成任务 → Engine 提取 text → 写入 cici咪 的 stdin（排队）
+```
+
+**现状**：❌ 完全没有。当前 Agent 完成后只更新 task_table，text 不会推给 cici咪。
+
+**缺失模块**：`engine/result_relay.py`
+
+```python
+class ResultRelay:
+    """Agent 输出回传器。Agent 完成后，把 text 推给 cici咪审核。"""
+
+    async def relay_to_cici(self, task: Task, result: AgentResult):
+        """把 agent 结果推给 cici咪。"""
+        if cici咪忙:
+            暂存到队列
+        else:
+            写入 cici咪 的 stdin
+```
+
+**优先级**：最高（这是协作的基础）
+
+---
+
+### 断点 2：依赖检查 + 自动派发
+
+**流程**：
+```
+cici咪 更新任务表（#14 done）→ Engine 检查依赖 → #15 的依赖满足 → 派发
+```
+
+**现状**：
+- ✅ `task_table.unblocked_tasks()` 已实现
+- ❌ Task Scheduler 只轮询 pending，不调用 `unblocked_tasks()`
+
+**缺失逻辑**：
+```python
+class TaskScheduler:
+    async def run(self):
+        while self._running:
+            # 新增：检查依赖
+            pending = self.task_table.list_tasks(status="pending")
+            unblocked = self.task_table.unblocked_tasks()
+            for task in unblocked:
+                await self._run_one(task)
+            await asyncio.sleep(2.0)
+```
+
+**优先级**：高（DAG 执行的核心）
+
+---
+
+### 断点 3：失败重试
+
+**ADR-003 承诺**（C6）：
+```
+3次重试 → 三选项：
+  1) 重试
+  2) 转派（换 agent）
+  3) 标记 abandoned + 通知人类
+```
+
+**现状**：❌ 完全没有
+
+**缺失模块**：`engine/healer.py`
+
+```python
+class Healer:
+    """失败重试与转派。"""
+
+    async def handle_failure(self, task: Task, error: str):
+        task.retry_count += 1
+        if task.retry_count < 3:
+            重试(指数退避)
+        else:
+            问 cici咪：重试/转派/放弃
+```
+
+**优先级**：中（可以先手动失败处理，但长期必须有）
+
+---
+
+### 修正后的完整闭环
+
+```
+人类发消息
+  ↓
+/api/chat → cici咪 分析 → create_task(#14, agent="coco咪")
+  ↓
+Task Scheduler 轮询：#14 pending → 派发 coco咪
+  ↓
+coco咪 执行 → task_table.update(#14, status="done")
+  ↓
+Task Scheduler 检查依赖：#14 done → #15 无依赖 → 派发 soso咪
+  ↓
+ResultRelay 推结果给 cici咪（排队）
+  ↓
+cici咪 审核 → update_task(#15, status="done")
+  ↓
+Task Scheduler 检查：#15 done → 关联 PR → merge
+```
+
+---
+
+## 分段实施计划（修订）
+
+### Phase 4.0: 协作闭环基础（必做，所有断点）
+
+**目标**：补齐 ADR-003 承诺的三个断点，让基础协作能跑通。
+
+**交付物**：
+- `engine/result_relay.py`（Agent 输出回传）
+- `engine/task_scheduler.py`（基础调度 + 依赖检查）
+- `engine/healer.py`（失败重试，先简单版）
+- Task Scheduler 集成到 FastAPI（后台任务）
+
+**场景（ADR-003 完整流程）**：
+```
+人类: "@coco咪 加刷新按钮"
+  ↓
+/api/chat → cici咪 分析 → create_task(#14, agent="coco咪")
+  ↓
+Task Scheduler 轮询：#14 pending → 派发 coco咪
+  ↓
+coco咪 执行 → result_relay 推给 cici咪
+  ↓
+cici咪 审核 → create_task(#15, agent="soso咪", depends_on=[14])
+  ↓
+Task Scheduler 检查：#15 依赖 #14 → #14 done → 派发 soso咪
+  ↓
+soso咪 执行失败（network error）→ Healer 重试 2 次 → 第 3 次失败 → 转派 cici咪 审查
+```
+
+**优先级**：最高（没有这个，后续所有 Phase 都无法运作）
+
+**预估工作量**：5-6 天
+
+---
+
+### Phase 4.1: GitHub Adapter（外部接入）
 
 ### Phase 4.1: GitHub Adapter（外部接入）
 
@@ -363,31 +509,39 @@ CREATE TABLE conflict_records (
 
 | 风险 | 缓解措施 |
 |---|---|
+| 4.0 Result Relay 死锁 | cici咪 忙时暂存队列，永不阻塞执行 agent |
+| 4.0 依赖检查死循环 | 检测 A → B → A 循环，标记冲突转人类 |
+| 4.0 重试风暴 | 指数退避，最多重试 3 次，第 4 次转人工 |
 | 4.1 GitHub API 限流 | 使用三不同 PAT 分散请求 |
 | 4.2 DAG 调度死锁 | 限制依赖深度（最多 3 层） |
 | 4.3 Agent Bids 饥饿 | 优先让 agent 认领自己擅长的任务 |
 | 4.4 辩论无限循环 | 超时后转人类裁决 |
 | 4.5 Worktree 磁盘占用 | 定期清理完成任务的 worktree |
-| 4.6 重试风暴 | 指数退避，最多重试 3 次 |
+| 4.6 自愈机制过度介入 | 只在明显可恢复的错误上重试，逻辑错误直接转人工 |
 
 ---
 
-## 总时间估算
+## 总时间估算（修订）
 
-| Phase | 工作量 | 累计 |
-|---|---|---|
-| 4.1: GitHub Adapter | 3-4 天 | 1 周 |
-| 4.2: Task Planner + DAG | 4-5 天 | 2 周 |
-| 4.3: Agent Bids | 5-6 天 | 3 周 |
-| 4.4: Conflict Resolver | 7-8 天 | 4-5 周 |
-| 4.5: Git Worktree | 3-4 天 | 5 周 |
-| 4.6: 自愈机制 | 2-3 天 | 6 周 |
+| Phase | 工作量 | 累计 | 状态 |
+|---|---|---|---|
+| **4.0: 协作闭环基础** | 5-6 天 | 1 周 | **必做** |
+| 4.1: GitHub Adapter | 3-4 天 | 2 周 | - |
+| 4.2: Task Planner + DAG | 4-5 天 | 3 周 | - |
+| 4.3: Agent Bids | 5-6 天 | 4 周 | - |
+| 4.4: Conflict Resolver | 7-8 天 | 5-6 周 | - |
+| 4.5: Git Worktree | 3-4 天 | 6 周 | - |
+| 4.6: 自愈机制（完整版） | 2-3 天 | 6 周 | - |
 
-**最小可行版本（MVP）**：4.1 + 4.2（2 周）
-- 能实现：GitHub Issue → 任务拆分 → 执行
-- 基本覆盖："人类发需求 → cici咪 拆 → coco咪/soso咪 执行"
+**最小可行版本（MVP）**：4.0 + 4.1 + 4.2（3 周）
+- 能实现：
+  - ✅ Agent 输出回传（Result Relay）
+  - ✅ 依赖检查 + 自动派发（Task Scheduler）
+  - ✅ 简单失败重试（Healer 基础版）
+  - ✅ GitHub Issue → 任务拆分 → 执行
+- 基本覆盖：ADR-003 完整流程 + 简单 GitHub 集成
 
-**完整版本**：4.1-4.6（6 周）
+**完整版本**：4.0-4.6（6 周）
 - 能实现：完整拉模式，人类变成观察者
 
 ---
@@ -395,13 +549,13 @@ CREATE TABLE conflict_records (
 ## 下一步
 
 1. 确认这个分段计划是否合理
-2. 决定先做 MVP（4.1 + 4.2），还是更激进
-3. 更新 PROGRESS.md，进入 Phase 4.1
+2. 决定先做 MVP（4.0 + 4.1 + 4.2），还是更激进
+3. 更新 PROGRESS.md，进入 Phase 4.0
 
 ---
 
 ## 参考
 
 - spec: `docs/specs/2026-07-08-teamchat-design.md`
-- ADR-003: CLI 逐行输出 + 审批卡片
+- ADR-003: CLI 逐行输出 + 审批卡片（承诺但未实现：Result Relay / 依赖检查 / 失败重试）
 - PROGRESS.md: 当前进度
