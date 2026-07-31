@@ -136,30 +136,62 @@ Result + 新 Issue（迭代）
 
 ## 协作闭环（核心缺失）
 
-**ADR-003 承诺的流程**，但上述架构图缺少的关键模块：
+**ADR-003 承诺的流程**，但上述架构图缺少的关键模块。
 
-### 断点 1：Agent 输出回传
+### 两条铁律（解决"时机判断"与"prompt 有效性"两个问题）
+
+经过设计审查，确认 Phase 4.0 必须遵守：
+
+1. **Engine 零决策** — Engine 不判断 done/fail、不判断"该不该审"。所有 agent 的成功结果都推给 cici咪 审；失败结果走确定性重试（exit_code/超时/重试计数），重试耗尽才升级 cici咪。Engine 只做轮询、派发、排队、计数。
+2. **prompt 现写，不预写** — cici咪 审核时看到 agent 的实际产出，**当场写**下一步 prompt 并 `create_task`。绝不预写后续 prompt 自动派发（预写 prompt 不知道实际产出，对 review 类任务必然失效）。
+
+> 这两条直接回应了两个质疑：①"怎么保证判断时机"→ Engine 不判断，全部流经 cici咪；②"怎么保证 prompt 有效"→ cici咪 看着实际产出现写。
+
+### ADR-003 真实场景 × Phase 4.0 模块 对照
+
+| Step | 人肉路由（你做的） | 平台自动化 | Phase 4.0 模块 | 谁决策 |
+|---|---|---|---|---|
+| 1 | 发需求给 cici咪 | `/api/chat` spawn cici咪(--resume) | chat.py（已有） | cici咪 分析 |
+| 2 | cici咪 给你 prompt 让你发给 coco咪 | cici咪 `create_task(A, coco咪, prompt=现写)` | MCP（已有） | cici咪 写 prompt |
+| 3 | 你把 prompt 粘贴给 coco咪 | Task Scheduler 发现 A unblocked → spawn coco咪 | **PR1 Task Scheduler** | Engine 派发（无决策） |
+| 4 | coco咪 完成但你还在等 cici咪，先把 coco咪 输出存着 | coco咪 完成 → cici咪 busy → 结果入队；cici咪 idle → spawn cici咪(--resume) 喂结果 | **PR2 Result Relay** | Engine 排队（无决策） |
+| 5 | cici咪 看完，给你 prompt 发给 soso咪 | cici咪 审核 → `update_task(A, done)` → `create_task(B, soso咪, prompt=现写, depends_on=[A])` | MCP（已有） | cici咪 决策+写 prompt |
+| 6 | 你把 prompt 粘贴给 soso咪 | Task Scheduler 发现 B unblocked → spawn soso咪 | PR1 Task Scheduler | Engine 派发（无决策） |
+| 7 | 把 soso咪 输出给 cici咪 → 合并 | Result Relay 回流 → cici咪 审核 → merge | PR2 + MCP | cici咪 决策 |
+| 失败 | 你看到错误手动重试 | Healer 重试3次 → 升级 cici咪 | **PR3 Healer** | Engine 计数→cici咪 决策 |
+
+### 模块职责边界（确保 Engine 不越权）
+
+| 模块 | 做什么 | **不做**什么 |
+|---|---|---|
+| Task Scheduler | 轮询 `unblocked_tasks()` → spawn agent | ❌ 不判断 done/fail、不写 prompt |
+| Result Relay | agent 完成 → 推 cici咪（busy 排队 / idle 批量喂） | ❌ 不判断结果好坏、不创建任务 |
+| Healer | 失败 → 重试计数 → 升级 | ❌ 不判断"可恢复 vs 逻辑错误"（升级后 cici咪 判断） |
+| cici咪 | 审核、判断 done/fail、写 prompt、create_task、update_task | —（唯一决策者） |
+
+### cici咪 审核 的落地方式（重要）
+
+cici咪 不是常驻进程，也不通过 stdin 接收消息（当前 `runner._run` 是一次性 spawn，prompt 走命令行参数）。审核的落地：
+
+- **不走 task_table** — 审核是"元操作"，不是工作单元（ADR-003 §10.4：`agent_calls` 记录所有 activity，`tasks` 只记录 cici咪 编排的工作单元）
+- **走 agent_calls** — 审核 spawn 记一行日志
+- **spawn cici咪(--resume) + 结果拼进 prompt** — 把排队的结果拼成 user message 作为 prompt，恢复上下文审核
+- **审核后用 MCP 工具** — `update_task`(done/fail) + `create_task`(下一步，prompt 现写)
+
+---
+
+### 断点 1：Agent 输出回传（Result Relay）
 
 **流程**：
 ```
-coco咪 完成任务 → Engine 提取 text → 写入 cici咪 的 stdin（排队）
+coco咪 完成任务 → Engine 提取 text
+  → cici咪 busy（Router.is_busy）→ 结果入 Orchestrator._queue（排队，解决"等待"）
+  → cici咪 idle → drain_queue → 把排队结果拼成 prompt → spawn cici咪(--resume) 审核
 ```
 
-**现状**：❌ 完全没有。当前 Agent 完成后只更新 task_table，text 不会推给 cici咪。
+**现状**：❌ agent 完成后只更新 task_table，text 不会推给 cici咪。Orchestrator 的 `_queue`/`drain_queue()` 已写好但未接入。
 
-**缺失模块**：`engine/result_relay.py`
-
-```python
-class ResultRelay:
-    """Agent 输出回传器。Agent 完成后，把 text 推给 cici咪审核。"""
-
-    async def relay_to_cici(self, task: Task, result: AgentResult):
-        """把 agent 结果推给 cici咪。"""
-        if cici咪忙:
-            暂存到队列
-        else:
-            写入 cici咪 的 stdin
-```
+**实现**：`engine/result_relay.py`，复用 `Orchestrator._queue` + `drain_queue()` + `_spawn_with_session` 模式。**不写 stdin**（runner 不支持），而是 spawn cici咪(--resume) 把结果拼进 prompt。
 
 **优先级**：最高（这是协作的基础）
 
@@ -223,25 +255,34 @@ class Healer:
 
 ---
 
-### 修正后的完整闭环
+### 自洽的完整闭环（中枢模式）
 
 ```
 人类发消息
   ↓
-/api/chat → cici咪 分析 → create_task(#14, agent="coco咪")
+/api/chat → spawn cici咪(--resume) 分析 → create_task(#14, coco咪, prompt=现写)
   ↓
-Task Scheduler 轮询：#14 pending → 派发 coco咪
+Task Scheduler 轮询：#14 unblocked → spawn coco咪         [Engine 派发，无决策]
   ↓
-coco咪 执行 → task_table.update(#14, status="done")
+coco咪 完成 → Result Relay
+  → cici咪 busy? → 入队（等待）                              [Engine 排队，无决策]
+  → cici咪 idle  → spawn cici咪(--resume) 喂 #14 结果
   ↓
-Task Scheduler 检查依赖：#14 done → #15 无依赖 → 派发 soso咪
+cici咪 审核 #14 → update_task(#14, done) → create_task(#15, soso咪, prompt=现写, depends_on=[14])
+  ↓                                                          [cici咪 决策+写 prompt]
+Task Scheduler 轮询：#15 依赖 #14 已 done → unblocked → spawn soso咪
   ↓
-ResultRelay 推结果给 cici咪（排队）
+soso咪 完成 → Result Relay → spawn cici咪(--resume) 喂 #15 结果
   ↓
-cici咪 审核 → update_task(#15, status="done")
+cici咪 审核 #15 → merge PR → 全部 done
   ↓
-Task Scheduler 检查：#15 done → 关联 PR → merge
+失败分支：agent exit_code≠0 → Healer 重试3次 → 仍失败 → spawn cici咪 决策(重试/转派/放弃)
 ```
+
+**自洽性验证**：
+- ✅ 时机判断：Engine 不判断，所有成功结果流经 cici咪，失败走确定性重试
+- ✅ prompt 有效性：每个 `create_task` 的 prompt 都是 cici咪 看过实际产出现写的
+- ✅ 决策权：只有 cici咪 调用 `update_task`(done/fail) 和 `create_task`，Engine 只搬运
 
 ---
 
@@ -257,30 +298,14 @@ Task Scheduler 检查：#15 done → 关联 PR → merge
 
 ### Phase 4.0: 协作闭环基础（必做，所有断点）
 
-**目标**：补齐 ADR-003 承诺的三个断点，让基础协作能跑通。
+**目标**：落地 ADR-003 中枢模式完整闭环（见上方"自洽的完整闭环"），补齐三个断点。
 
-**交付物**：
-- `engine/result_relay.py`（Agent 输出回传）
-- `engine/task_scheduler.py`（基础调度 + 依赖检查）
-- `engine/healer.py`（失败重试，先简单版）
-- Task Scheduler 集成到 FastAPI（后台任务）
+**交付物（拆 3 个 PR）**：
+- **PR1** `engine/task_scheduler.py` — 后台轮询 `unblocked_tasks()` → spawn agent；集成到 `api/main.py` lifespan（`asyncio.create_task`）。只派发不决策。
+- **PR2** `engine/result_relay.py` — agent 完成 → cici咪 busy 入队 / idle 批量喂（spawn --resume + 结果拼 prompt）；复用 `Orchestrator._queue`/`drain_queue()`。
+- **PR3** 失败重试接入（`Orchestrator.on_task_done` 重试逻辑）+ 改造 `chat.py`（同步派发迁移到 Scheduler）+ 端到端测试。
 
-**场景（ADR-003 完整流程）**：
-```
-人类: "@coco咪 加刷新按钮"
-  ↓
-/api/chat → cici咪 分析 → create_task(#14, agent="coco咪")
-  ↓
-Task Scheduler 轮询：#14 pending → 派发 coco咪
-  ↓
-coco咪 执行 → result_relay 推给 cici咪
-  ↓
-cici咪 审核 → create_task(#15, agent="soso咪", depends_on=[14])
-  ↓
-Task Scheduler 检查：#15 依赖 #14 → #14 done → 派发 soso咪
-  ↓
-soso咪 执行失败（network error）→ Healer 重试 2 次 → 第 3 次失败 → 转派 cici咪 审查
-```
+**铁律**：PR1-3 必须遵守"Engine 零决策 + prompt 现写"。`update_task`(done/fail) 和 `create_task` 只能由 cici咪 调用，Engine 不碰。
 
 **优先级**：最高（没有这个，后续所有 Phase 都无法运作）
 
