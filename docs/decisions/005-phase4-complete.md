@@ -116,11 +116,11 @@ Result + 新 Issue（迭代）
 ┌─────────────────────┴───────────────────────────────────────────────┐
 │                      Execution Layer                               │
 │                                                                      │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌────────────────────┐│
-│  │  Task Scheduler  │  │  Agent Runner    │  │  Git Worktree     ││
-│  │  轮询 + 执行     │  │  CLI 驱动        │  │  隔离环境         ││
-│  │  任务回写        │  │  Session 恢复    │  │  并发安全         ││
-│  └──────────────────┘  └──────────────────┘  └────────────────────┘│
+│  ┌──────────────────┐  ┌──────────────────┐                        │
+│  │  Task Scheduler  │  │  Agent Runner    │                        │
+│  │  轮询 + 执行     │  │  CLI 驱动        │                        │
+│  │  依赖检查        │  │  Session 恢复    │                        │
+│  └──────────────────┘  └──────────────────┘                        │
 └─────────────────────┬───────────────────────────────────────────────┘
                       │ stdout / events
 ┌─────────────────────┴───────────────────────────────────────────────┐
@@ -242,6 +242,14 @@ cici咪 审核 → update_task(#15, status="done")
   ↓
 Task Scheduler 检查：#15 done → 关联 PR → merge
 ```
+
+---
+
+## 未来考虑（暂不实施）
+
+| 功能 | 理由 | 预计时间 |
+|---|---|---|
+| **Git Worktree 隔离** | Phase 4.0 的协作闭环中，每个 Agent 单实例串行执行，并发场景极少。一个 Agent 完成 → commit → 下一个 Agent 开始，不需要多目录隔离。可在将来有并发需求时再做。 | 3-4 天 |
 
 ---
 
@@ -415,35 +423,7 @@ Conflict Resolver:
 
 ---
 
-### Phase 4.5: Git Worktree 隔离（并发安全）
-
-**目标**：多 agent 并发执行不会互相覆盖文件。
-
-**交付物**：
-- `engine/worktree_manager.py`
-- 每个任务在独立的 git worktree 中执行
-- 执行完成后 PR 到 main
-
-**场景**：
-```
-两个任务同时进行：
-  - Task A: coco咪 改前端
-  - Task B: soso咪 改后端
-  ↓
-Git Worktree:
-  - /tmp/teamchat-worktree-001/ (coco咪)
-  - /tmp/teamchat-worktree-002/ (soso咪)
-  ↓
-执行完成后自动提 PR，不会互相覆盖
-```
-
-**优先级**：中（可以先串行执行，以后再并发）
-
-**预估工作量**：3-4 天
-
----
-
-### Phase 4.6: 自愈机制（失败重试）
+### Phase 4.5: 自愈机制（失败重试）
 
 **目标**：agent 执行失败时，自动重试或转派。
 
@@ -484,7 +464,6 @@ ALTER TABLE task_table ADD COLUMN bids TEXT NOT NULL DEFAULT '[]';  -- JSON: [{a
 ALTER TABLE task_table ADD COLUMN conflict_status TEXT NOT NULL DEFAULT '';  -- 'debating' | 'voting' | 'resolved'
 ALTER TABLE task_table ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE task_table ADD COLUMN last_error TEXT NOT NULL DEFAULT '';
-ALTER TABLE task_table ADD COLUMN worktree_path TEXT NOT NULL DEFAULT '';  -- Git Worktree 路径
 ```
 
 ### 新表：conflict_records
@@ -516,8 +495,6 @@ CREATE TABLE conflict_records (
 | 4.2 DAG 调度死锁 | 限制依赖深度（最多 3 层） |
 | 4.3 Agent Bids 饥饿 | 优先让 agent 认领自己擅长的任务 |
 | 4.4 辩论无限循环 | 超时后转人类裁决 |
-| 4.5 Worktree 磁盘占用 | 定期清理完成任务的 worktree |
-| 4.6 自愈机制过度介入 | 只在明显可恢复的错误上重试，逻辑错误直接转人工 |
 
 ---
 
@@ -530,8 +507,7 @@ CREATE TABLE conflict_records (
 | 4.2: Task Planner + DAG | 4-5 天 | 3 周 | - |
 | 4.3: Agent Bids | 5-6 天 | 4 周 | - |
 | 4.4: Conflict Resolver | 7-8 天 | 5-6 周 | - |
-| 4.5: Git Worktree | 3-4 天 | 6 周 | - |
-| 4.6: 自愈机制（完整版） | 2-3 天 | 6 周 | - |
+| 4.5: 自愈机制 | 2-3 天 | 6 周 | - |
 
 **最小可行版本（MVP）**：4.0 + 4.1 + 4.2（3 周）
 - 能实现：
