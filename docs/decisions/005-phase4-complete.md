@@ -30,7 +30,7 @@
 | Router 自动分配 | ⚠️ 部分支持 | 只有 @mention 路由，无任务类型路由 |
 | 辩论 → 投票 → 自动裁决 | ❌ 无 | 没有 Conflict Resolver |
 | Agent 自主开 Issue/PR/Review/Merge | ❌ 无 | 没有 GitHub Adapter |
-| 任务拆分（大需求 → Issues） | ❌ 无 | 只能创建单任务 |
+| 任务拆分（cici咪 判断粒度） | ❌ 无 | 只能创建单任务 |
 | 人类变成观察者 | ❌ 无 | 人类仍需主导流程 |
 | Git Worktree 隔离 | ❌ 无 | 所有 agent 在同一 cwd |
 
@@ -320,7 +320,7 @@ Task Scheduler 执行（沿用 ADR-004）
 
 ### Phase 4.2: Task Planner + DAG 调度（任务拆分）
 
-**目标**：cici咪 能把大需求拆成多个任务，支持依赖关系。
+**目标**：cici咪 判断任务粒度，小需求直接派发，大需求拆成多步骤 DAG，Engine 按依赖顺序执行。
 
 **交付物**：
 - `engine/task_planner.py`（拆分逻辑）
@@ -331,9 +331,9 @@ Task Scheduler 执行（沿用 ADR-004）
 ```
 GitHub 新 Issue: "完整实现 OAuth 2.0 登录"
   ↓
-Issue Parser 识别为"大需求"
+cici咪 分析后判断需拆分:
   ↓
-Task Planner 调用 cici咪 拆分：
+调用 Task Planner 拆分：
   - Task A: 设计 OAuth schema
   - Task B: 实现 /auth/login
   - Task C: 实现 /auth/callback
