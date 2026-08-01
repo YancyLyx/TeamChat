@@ -67,3 +67,20 @@ def test_update_sets_timestamps(task_table: TaskTable):
     assert done.status == "done"
     assert done.output_summary == "ok"
     assert done.finished_at
+
+
+def test_retry_count_and_last_error_fields(task_table: TaskTable):
+    """Phase 4.5: retry_count/last_error 字段（自愈机制记录）。"""
+    task = task_table.create("coco咪", "Retry test")
+    assert task.retry_count == 0
+    assert task.last_error == ""
+
+    task_table.update(task.id, retry_count=2, last_error="network timeout")
+    updated = task_table.get(task.id)
+    assert updated.retry_count == 2
+    assert updated.last_error == "network timeout"
+
+    # to_dict 包含新字段
+    d = updated.to_dict()
+    assert d["retry_count"] == 2
+    assert d["last_error"] == "network timeout"

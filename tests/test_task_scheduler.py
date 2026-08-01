@@ -178,6 +178,27 @@ class TestTaskScheduler:
         assert relayed.args[1].success is False
         assert relayed.kwargs.get("retries") == 3
 
+    async def test_retry_records_count_and_error(self, task_table, mock_runner, monkeypatch):
+        """Phase 4.5: 重试耗尽后任务记录 retry_count + last_error（cici咪 决策依据）。"""
+        import engine.task_scheduler as ts
+        monkeypatch.setattr(ts, "RETRY_DELAYS", (0, 0, 0))
+        task = task_table.create(agent="coco咪", title="t", description="d")
+        mock_runner._run.return_value = _make_result(exit_code=1, output="always broken")
+        result_relay = AsyncMock()
+        router = MagicMock()
+        store = MagicMock()
+        session_store = MagicMock()
+        session_store.get_agent_session_id.return_value = "sid"
+
+        scheduler = TaskScheduler(
+            mock_runner, router, task_table, session_store, store, result_relay,
+        )
+        await scheduler._dispatch(task)
+
+        updated = task_table.get(task.id)
+        assert updated.retry_count == 3  # MAX_RETRIES
+        assert "always broken" in updated.last_error
+
     async def test_retry_attempts_are_audited(self, task_table, mock_runner, monkeypatch):
         """Every retried attempt is written to agent_calls (soso咪 备注, PR #95)."""
         import engine.task_scheduler as ts
@@ -305,6 +326,20 @@ class TestResultRelay:
         # batch re-queued for a later retry — nothing lost
         assert len(relay._pending) == 1
         assert relay._pending[0][0].id == task.id
+
+    def test_build_review_prompt_includes_healing_options(self, task_table):
+        """Phase 4.5: 失败任务的审核 prompt 含三选项（重试/转派/放弃）+ last_error。"""
+        relay = ResultRelay(MagicMock(), MagicMock(), MagicMock(), task_table)
+        task = task_table.create(agent="coco咪", title="t", description="d")
+        task_table.update(task.id, retry_count=3, last_error="network timeout")
+        task = task_table.get(task.id)  # 重新读取（含 last_error）
+        result = _make_result(output="error", exit_code=1)
+
+        prompt = relay._build_review_prompt([(task, result, 3)])
+
+        assert "network timeout" in prompt  # last_error 显示
+        assert "重试" in prompt and "转派" in prompt and "放弃" in prompt
+        assert "update_task(task_id=<id>, agent=<另一位咪>" in prompt
 
     def test_build_review_prompt_marks_failed_result(self, task_table):
         relay = ResultRelay(MagicMock(), MagicMock(), MagicMock(), task_table)

@@ -185,6 +185,21 @@ class TestMcpToolHandlers:
         assert root["id"] == a.id
         assert root["children"][0]["id"] == b.id
 
+    def test_update_task_can_reassign_agent(self, task_table: TaskTable):
+        """Phase 4.5: update_task 支持 agent 转派（自愈三选项之一）。"""
+        task = task_table.create("coco咪", "A")
+        resp = mcp.process_request({
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "tools/call",
+            "params": {
+                "name": "update_task",
+                "arguments": {"task_id": task.id, "status": "pending", "agent": "soso咪"},
+            },
+        })
+        payload = json.loads(resp["result"]["content"][0]["text"])
+        assert task_table.get(task.id).agent == "soso咪"  # 转派成功
+
     def test_list_tasks_filter(self, task_table: TaskTable):
         task_table.create("cici咪", "A")
         done = task_table.create("coco咪", "B")

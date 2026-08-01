@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS task_table (
     created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
     started_at  TEXT    NOT NULL DEFAULT '',
     finished_at TEXT    NOT NULL DEFAULT '',
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    last_error  TEXT    NOT NULL DEFAULT '',
     FOREIGN KEY (teamchat_session_id) REFERENCES teamchat_sessions(id)
 );
 
@@ -50,6 +52,8 @@ class Task:
     created_at: str = ""
     started_at: str = ""
     finished_at: str = ""
+    retry_count: int = 0
+    last_error: str = ""
 
     @property
     def is_blocked(self) -> bool:
@@ -69,6 +73,8 @@ class Task:
             "created_at": self.created_at,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
+            "retry_count": self.retry_count,
+            "last_error": self.last_error,
         }
 
 
@@ -101,6 +107,13 @@ class TaskTable:
             )
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_task_session ON task_table(teamchat_session_id)"
+            )
+        if "retry_count" not in columns:
+            self._conn.execute(
+                "ALTER TABLE task_table ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0"
+            )
+            self._conn.execute(
+                "ALTER TABLE task_table ADD COLUMN last_error TEXT NOT NULL DEFAULT ''"
             )
         self._conn.commit()
 
@@ -137,7 +150,8 @@ class TaskTable:
         """Update task fields. e.g., update(14, status='done', output_summary='...')"""
         allowed = {"agent", "title", "description", "status",
                    "depends_on", "github_issue", "output_summary",
-                   "started_at", "finished_at", "teamchat_session_id"}
+                   "started_at", "finished_at", "teamchat_session_id",
+                   "retry_count", "last_error"}
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
             return
@@ -276,6 +290,8 @@ class TaskTable:
             created_at=row[8 + offset] if len(row) > 8 + offset else "",
             started_at=row[9 + offset] if len(row) > 9 + offset else "",
             finished_at=row[10 + offset] if len(row) > 10 + offset else "",
+            retry_count=row[11 + offset] if len(row) > 11 + offset else 0,
+            last_error=row[12 + offset] if len(row) > 12 + offset else "",
         )
 
 

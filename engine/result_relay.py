@@ -131,6 +131,8 @@ class ResultRelay:
             parts.append(f"执行状态: {status} (exit_code={result.exit_code})")
             if retries:
                 parts.append(f"（引擎已自动重试 {retries} 次后仍{'失败' if not result.success else '成功'}）")
+            if not result.success and task.last_error:
+                parts.append(f"最后错误: {task.last_error[:300]}")
             parts.append("执行输出:")
             parts.append(result.output[:MAX_OUTPUT_IN_PROMPT])
             parts.append("")
@@ -145,6 +147,13 @@ class ResultRelay:
             "  创建新任务(agent=原实现者, title=修复XX, prompt=含具体问题描述, depends_on=[当前任务id])",
             "- 修复任务完成后，如需要，再创建复查任务（depends_on=[修复任务id]）",
             "- 保持 DAG 无环：禁止让任务依赖自己的后代",
+            "",
+            "## 失败任务的三选项（ADR-003 C6，自愈机制）:",
+            "对标记为失败的任务，从三个选项中选择并执行（一个即可）：",
+            "  1. 重试 → update_task(task_id=<id>, status=\"pending\")（问题可能是暂时的）",
+            "  2. 转派 → update_task(task_id=<id>, agent=<另一位咪>, status=\"pending\")（换人重做）",
+            "  3. 放弃 → update_task(task_id=<id>, status=\"abandoned\")（并考虑创建替代任务）",
+            "注意：转派前评估失败原因，明显是环境/网络问题先重试，实现问题可转派。",
             "",
             "可用 MCP 工具: mcp__teamchat__update_task, mcp__teamchat__create_task, mcp__teamchat__list_tasks, mcp__teamchat__get_task, mcp__teamchat__dag_summary, mcp__teamchat__task_tree",
             "注意：你只做审核和任务编排，不要自己执行开发任务。",

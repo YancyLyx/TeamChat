@@ -94,9 +94,12 @@ def handle_update_task(args: dict) -> dict:
         return {"error": f"Task #{task_id} not found"}
 
     # soso咪 review Bug 2: 支持 depends_on 修正（cici咪 修复循环依赖的途径）
+    # Phase 4.5: agent 参数支持转派（自愈三选项之一）
     kwargs = {"status": status}
     if "depends_on" in args:
         kwargs["depends_on"] = args["depends_on"]
+    if "agent" in args:
+        kwargs["agent"] = args["agent"]
     tt.update(task_id, **kwargs)
     # soso咪 审查建议: update 后复检循环（create 有 warning，update 也要有）
     warning = None
@@ -156,6 +159,10 @@ TOOLS = {
                     "type": "array",
                     "items": {"type": "integer"},
                     "description": "Optional: fix the task's dependencies (e.g. break a cycle)",
+                },
+                "agent": {
+                    "type": "string",
+                    "description": "Optional: reassign the task to another agent (自愈转派)",
                 },
             },
             "required": ["task_id", "status"],

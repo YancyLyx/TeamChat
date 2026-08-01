@@ -92,6 +92,11 @@ class TaskScheduler:
                     finished_at=datetime.now(timezone.utc).isoformat(),
                 )
             if result.success or retries >= MAX_RETRIES:
+                # 记录最终失败原因（Phase 4.5 自愈：cici咪 决策需要知道为什么失败）
+                if not result.success:
+                    self.task_table.update(
+                        task.id, retry_count=retries, last_error=result.output[:300],
+                    )
                 return result, retries
             # Audit every retried attempt (soso咪 review 备注 on PR #95) —
             # final attempt is logged by _dispatch with task_type="scheduled_task".
@@ -102,6 +107,10 @@ class TaskScheduler:
                 task_type="scheduled_task_retry",
                 teamchat_session_id=task.teamchat_session_id,
                 started_at=result.started_at, finished_at=result.finished_at,
+            )
+            # 记录重试状态到任务（Phase 4.5）
+            self.task_table.update(
+                task.id, retry_count=retries + 1, last_error=result.output[:300],
             )
             retries += 1
             delay = RETRY_DELAYS[min(retries, len(RETRY_DELAYS)) - 1]
