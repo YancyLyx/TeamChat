@@ -13,6 +13,7 @@ Handles:
 import asyncio
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -139,6 +140,24 @@ class AgentRunner:
         self.config = config
         self.stats: dict[str, RunnerStats] = {}
         self._sessions: dict[str, bool] = {}  # agent_name -> has_active_session
+
+    def _build_agent_env(self, agent: AgentIdentity) -> dict:
+        """Build subprocess env: inherit parent + inject agent's PAT + git identity.
+
+        Each agent's git commits / gh CLI calls then carry its own identity
+        (design spec §5 GitHub Identity Model), so commits show "coco咪 (Codex
+        Developer)" etc. instead of the human's identity.
+        """
+        env = os.environ.copy()
+        token = self.config.get_token(agent)
+        if token:
+            env["GH_TOKEN"] = token
+            env["GITHUB_TOKEN"] = token
+        env["GIT_AUTHOR_NAME"] = agent.git_name
+        env["GIT_AUTHOR_EMAIL"] = agent.git_email
+        env["GIT_COMMITTER_NAME"] = agent.git_name
+        env["GIT_COMMITTER_EMAIL"] = agent.git_email
+        return env
 
     async def _read_claude_stream(self, process, timeout: float, agent: AgentIdentity):
         """Read Claude stdout line-by-line, handling control_request (approval) mid-stream."""
@@ -281,6 +300,7 @@ class AgentRunner:
                 stderr=asyncio.subprocess.PIPE,
                 stdin=asyncio.subprocess.PIPE,
                 cwd=str(cwd),
+                env=self._build_agent_env(agent),
             )
 
             if agent.cli == "claude":
@@ -403,6 +423,7 @@ class AgentRunner:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(cwd),
+            env=self._build_agent_env(agent),
         )
 
         if process.stdout:

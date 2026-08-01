@@ -117,14 +117,15 @@ class TestApprovalEndpoint:
         assert resp.status_code == 404
 
 
-class TestClaudeAcceptEditsConfig:
-    def test_claude_templates_include_accept_edits(self):
+class TestClaudePermissionPromptToolConfig:
+    def test_claude_templates_include_permission_prompt_tool(self):
         config = Config(
             repo_owner="test", repo_name="test", repo_url="https://github.com/test/test",
         )
         cmd = config.get_cli_command(AGENT_CICI, "hello")
-        assert "--permission-mode" in cmd
-        assert "acceptEdits" in cmd
+        assert "--permission-prompt-tool" in cmd
+        assert "stdio" in cmd
 
         resume = config.get_cli_command(AGENT_CICI, "hello", session_id="sess-123")
-        assert "acceptEdits" in resume
+        assert "--permission-prompt-tool" in resume
+        assert "stdio" in resume

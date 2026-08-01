@@ -510,3 +510,50 @@ class TestStoreTokenStats:
         assert stats["token_usage"]["output_tokens"] == 15
         store.close()
         ss.close()
+
+
+class TestRunnerAgentEnv:
+    """Agent subprocess env injects per-agent git identity + PAT (ADR-003 §5)."""
+
+    def _make_runner(self, tmp_path):
+        from engine.config import Config
+        config = Config(
+            repo_owner="test", repo_name="test", repo_url="https://github.com/test/test",
+            project_root=tmp_path,
+        )
+        return AgentRunner(config)
+
+    def test_git_identity_injected(self, tmp_path):
+        runner = self._make_runner(tmp_path)
+        env = runner._build_agent_env(AGENT_CICI)
+        assert env["GIT_AUTHOR_NAME"] == AGENT_CICI.git_name
+        assert env["GIT_AUTHOR_EMAIL"] == AGENT_CICI.git_email
+        assert env["GIT_COMMITTER_NAME"] == AGENT_CICI.git_name
+        assert env["GIT_COMMITTER_EMAIL"] == AGENT_CICI.git_email
+
+    def test_token_injected_when_present(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("TEAMCHAT_CICI_TOKEN", "pat_test_123")
+        runner = self._make_runner(tmp_path)
+        env = runner._build_agent_env(AGENT_CICI)
+        assert env["GH_TOKEN"] == "pat_test_123"
+        assert env["GITHUB_TOKEN"] == "pat_test_123"
+
+    def test_no_token_still_sets_git_identity(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("TEAMCHAT_CICI_TOKEN", raising=False)
+        runner = self._make_runner(tmp_path)
+        env = runner._build_agent_env(AGENT_CICI)
+        # Git identity is set regardless of whether a PAT exists
+        assert env["GIT_AUTHOR_NAME"] == AGENT_CICI.git_name
+        assert env["GIT_COMMITTER_EMAIL"] == AGENT_CICI.git_email
+
+    def test_parent_env_inherited(self, tmp_path):
+        runner = self._make_runner(tmp_path)
+        env = runner._build_agent_env(AGENT_CICI)
+        assert "PATH" in env  # inherits parent process env
+
+    def test_each_agent_gets_own_identity(self, tmp_path):
+        runner = self._make_runner(tmp_path)
+        for agent in (AGENT_CICI, AGENT_COCO, AGENT_SOSO):
+            env = runner._build_agent_env(agent)
+            assert env["GIT_AUTHOR_NAME"] == agent.git_name
+            assert env["GIT_AUTHOR_EMAIL"] == agent.git_email
