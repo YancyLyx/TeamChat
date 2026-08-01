@@ -88,3 +88,14 @@ Phase: ADR-005 Phase 4.0 **端到端验证通过**（2026-08-01 本地）。协�
 
 - **cici咪 不再执行 `gh pr merge`** — 合并由人类执行
 - GitHub 暂停期间：本地开发正常，不 push
+
+## ⚠️ 教训：Engine spawn agent 与用户终端共享工作区（2026-08-01）
+
+**事件**：Engine spawn 的 cici咪 执行任务 #12 时，`git checkout -b feature/cici-codex-resume-sandbox` 创建了分支并在上面 commit（config.py 修复 + 测试），而用户终端的 cici咪（本会话）同时在 main 上工作 → git 状态混乱，差点丢修改。
+
+**根因**：所有 agent（Engine spawn + 用户手动终端）共享同一工作目录和 git 仓库（ADR-005 曾规划 Git Worktree 隔离，降级为"未来考虑"）。
+
+**临时缓解**（已实施）：
+- Engine spawn 的 cici咪 任务 prompt 增加提示："不要创建 git 分支、不要 git commit/push（代码修改请直接改文件，由人工统一提交）"
+
+**长期方案**：Git Worktree 隔离（PROGRESS 待办，需并发需求时实施）
