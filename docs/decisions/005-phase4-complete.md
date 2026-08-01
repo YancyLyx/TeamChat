@@ -300,12 +300,11 @@ cici咪 审核 #15 → merge PR → 全部 done
 
 **目标**：落地 ADR-003 中枢模式完整闭环（见上方"自洽的完整闭环"），补齐三个断点。
 
-**交付物（拆 3 个 PR）**：
-- **PR1** `engine/task_scheduler.py` — 后台轮询 `unblocked_tasks()` → spawn agent；集成到 `api/main.py` lifespan（`asyncio.create_task`）。只派发不决策。
-- **PR2** `engine/result_relay.py` — agent 完成 → cici咪 busy 入队 / idle 批量喂（spawn --resume + 结果拼 prompt）；复用 `Orchestrator._queue`/`drain_queue()`。
-- **PR3** 失败重试接入（`Orchestrator.on_task_done` 重试逻辑）+ 改造 `chat.py`（同步派发迁移到 Scheduler）+ 端到端测试。
+**交付物（拆 2 个 PR）**：
+- **PR1** 协作闭环骨架 — `engine/task_scheduler.py`（轮询 `unblocked_tasks()` → 派发）+ `engine/result_relay.py`（cici咪 busy 入队 / idle 批量喂）+ 改造 `chat.py`（去掉同步派发，Scheduler 接管）+ 集成 `api/main.py` lifespan。三者紧密耦合：Scheduler 和 Relay 必须一起（agent 完成后要立刻有人接结果），chat.py 不改会与 Scheduler 重复派发，故合并为一个 PR。
+- **PR2** 失败重试（Healer）+ 端到端测试。
 
-**铁律**：PR1-3 必须遵守"Engine 零决策 + prompt 现写"。`update_task`(done/fail) 和 `create_task` 只能由 cici咪 调用，Engine 不碰。
+**铁律**：必须遵守"Engine 零决策 + prompt 现写"。`update_task`(done/fail) 和 `create_task` 只能由 cici咪 调用，Engine 不碰。Engine 派发 agent 后只标记 `running`；agent 完成后结果推 cici咪 审核，cici咪 决定 done/fail。
 
 **优先级**：最高（没有这个，后续所有 Phase 都无法运作）
 
