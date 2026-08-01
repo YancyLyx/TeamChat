@@ -13,29 +13,26 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from engine.config import ALL_AGENTS, AGENT_CICI, AGENT_COCO, AGENT_SOSO
+from engine.dispatch import spawn_with_session
 from engine.message_parser import parse_message, build_cici_analysis_prompt
 from engine.runner import AgentTask, AgentResult
 
-
-def new_unblocked_tasks(task_table, pending_before: set[int]):
-    """Return pending unblocked tasks created after analysis (avoid re-dispatching stale rows)."""
-    return [t for t in task_table.unblocked_tasks() if t.id not in pending_before]
-
-
-async def _spawn_with_session(agent, task, runner, session_store,
-                               teamchat_session_id) -> AgentResult:
-    """Spawn agent: resume stored CLI session ID, or cold-start and capture it."""
-    sid = session_store.get_agent_session_id(teamchat_session_id, agent.cli)
-    result = await runner._run(
-        agent, task, use_continue=bool(sid), session_id=sid or None,
-    )
-    if result.cli_session_id and not sid:
-        session_store.set_agent_session_id(
-            teamchat_session_id, agent.cli, result.cli_session_id,
-        )
-    return result
-
 GREETING_KEYWORDS = {"大家好", "hello", "hi", "在吗", "有人在吗", "你好", "你们好", "嗨"}
+
+
+async def _drain_relay(request) -> None:
+    """After cici咪 frees up, immediately process queued review results.
+
+    Without this, queued results wait for the next relay() call, adding latency
+    (soso咪 review 备注2 on PR #94).
+    """
+    relay = getattr(request.app.state, "result_relay", None)
+    if relay:
+        try:
+            await relay.drain_if_idle()
+        except Exception as exc:
+            logger.warning(f"drain relay failed: {exc}")
+
 
 logger = logging.getLogger("teamchat.chat")
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -111,10 +108,12 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
             router.mark_busy(agent)
             task = AgentTask(prompt=greeting_msg, timeout_seconds=60)
             try:
-                result = await _spawn_with_session(agent, task, runner,
+                result = await spawn_with_session(agent, task, runner,
                     session_store, teamchat_session_id)
             finally:
                 router.mark_free(agent)
+                if agent == AGENT_CICI:
+                    await _drain_relay(request)
             # Log to store
             store.log(
                 agent_name=agent.name, prompt=task.full_prompt(),
@@ -154,19 +153,19 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
         store = request.app.state.store
         router = request.app.state.router
         session_store = request.app.state.session_store
-        task_table = request.app.state.task_table
-        pending_before = {t.id for t in task_table.list_tasks(status="pending")}
 
         analysis_prompt = build_cici_analysis_prompt(content)
         engine_log.info(f"🤔 No @mention → spawning cici咪 for analysis")
         router.mark_busy(AGENT_CICI)
         try:
-            result = await _spawn_with_session(
+            result = await spawn_with_session(
                 AGENT_CICI, AgentTask(prompt=analysis_prompt, timeout_seconds=120),
                 runner, session_store, teamchat_session_id,
             )
         finally:
             router.mark_free(AGENT_CICI)
+            # cici咪 空闲了 → 立即处理排队的审核结果（soso咪 review 备注2）
+            await _drain_relay(request)
         analysis = result.output.strip()
 
         engine_log.info(f"📝 cici咪 analysis result ({len(analysis)} chars)")
@@ -176,48 +175,13 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
             "data": {"kind": "agent_reply", "agent": "cici咪", "content": analysis[:500], "timestamp": now},
         })
 
-        # ---- Auto-dispatch: newly created unblocked tasks after cici咪 analysis ----
-        unblocked = new_unblocked_tasks(task_table, pending_before)
-        if unblocked:
-            engine_log.info(f"🚀 Auto-dispatching {len(unblocked)} unblocked task(s)")
-        for task in unblocked:
-            engine_log.info(f"   → #{task.id} '{task.title}' to {task.agent}")
-            # Update task status
-            task_table.update(task.id, status="running")
-            # Spawn target agent
-            target_agent = None
-            for a in ALL_AGENTS:
-                if a.name == task.agent:
-                    target_agent = a
-                    break
-            if target_agent and task.description:
-                agent_task = AgentTask(prompt=task.description, timeout_seconds=300)
-                router.mark_busy(target_agent)
-                try:
-                    agent_result = await _spawn_with_session(
-                        target_agent, agent_task, runner, session_store, teamchat_session_id,
-                    )
-                finally:
-                    router.mark_free(target_agent)
-
-                store.log(
-                    agent_name=target_agent.name, prompt=task.description,
-                    output=agent_result.output, exit_code=agent_result.exit_code,
-                    duration_ms=agent_result.duration_ms, token_usage=agent_result.token_usage,
-                    task_type="chat_task", teamchat_session_id=teamchat_session_id,
-                    started_at=agent_result.started_at, finished_at=agent_result.finished_at,
-                )
-
-                task_table.update(task.id, status="done" if agent_result.success else "failed",
-                                  output_summary=agent_result.output[:500])
-                engine_log.info(f"   ✅ #{task.id} {task.agent}: {'done' if agent_result.success else 'failed'}")
-
-                await ws_mgr.broadcast({
-                    "type": "chat_message",
-                    "data": {"kind": "agent_reply", "agent": target_agent.name,
-                             "content": agent_result.output[:500], "timestamp": now},
-                })
-
+        # cici咪 has created tasks via MCP tools during analysis.
+        # The TaskScheduler (background loop) picks up unblocked tasks and dispatches them —
+        # no synchronous dispatch here (ADR-003 中枢模式: Engine 派发, cici咪 决策).
+        await ws_mgr.broadcast({
+            "type": "system_message",
+            "data": {"content": "cici咪 分析完成，任务已创建，调度器将自动派发", "timestamp": now},
+        })
         return ChatResponse(target_agent="cici咪", task_prompt=content, status="analyzed")
 
     # ---- MULTIPLE @mentions: broadcast ----
@@ -248,7 +212,7 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
 
     try:
         task = AgentTask(prompt=clean)
-        result = await _spawn_with_session(
+        result = await spawn_with_session(
             target, task, runner, session_store, teamchat_session_id,
         )
 
@@ -276,3 +240,5 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
                             task_prompt=clean, status="completed" if result.success else "failed")
     finally:
         router_inst.mark_free(target)
+        if target == AGENT_CICI:
+            await _drain_relay(request)
