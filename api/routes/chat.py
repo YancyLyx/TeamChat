@@ -102,8 +102,12 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
             "data": {"content": "三只猫收到了你的问候，正在回复...", "timestamp": now},
         })
 
-        # Parallel: all three agents reply concurrently
+        # Parallel: all three agents reply concurrently.
+        # 完善点⑥: 忙的 agent 跳过（问候不排队，避免并发冲突）。
         async def greet_one(agent):
+            if router.is_busy(agent):
+                engine_log.info(f"⏳ {agent.name} busy, greeting skipped")
+                return
             engine_log.info(f"🚀 Spawning {agent.name} ({agent.cli}) | session={teamchat_session_id}")
             router.mark_busy(agent)
             task = AgentTask(prompt=greeting_msg, timeout_seconds=60)
@@ -144,21 +148,39 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
 
     # ---- NO @mention: cici咪 analyzes ----
     if not parsed.mentions:
-        await ws_mgr.broadcast({
-            "type": "system_message",
-            "data": {"content": f"cici咪 analyzing: {content[:80]}...", "timestamp": now},
-        })
-
         runner = request.app.state.runner
         store = request.app.state.store
         router = request.app.state.router
         session_store = request.app.state.session_store
         task_table = request.app.state.task_table
+        analysis_prompt = build_cici_analysis_prompt(content)
+
+        # 完善点⑥: cici咪 busy（审核/分析中）→ 排队为任务，避免并发 spawn 冲突
+        if router.is_busy(AGENT_CICI):
+            task = task_table.create(
+                agent=AGENT_CICI.name,
+                title=f"分析: {content[:50]}",
+                description=analysis_prompt,
+                teamchat_session_id=teamchat_session_id,
+            )
+            engine_log.info(f"⏳ cici咪 busy → 分析排队为 task #{task.id}")
+            await ws_mgr.broadcast({
+                "type": "system_message",
+                "data": {"content": f"cici咪 正在忙，分析请求已排队（任务 #{task.id}），空闲后自动处理",
+                         "timestamp": now},
+            })
+            return ChatResponse(target_agent="cici咪", task_prompt=content,
+                                status="queued_for_cici")
+
+        await ws_mgr.broadcast({
+            "type": "system_message",
+            "data": {"content": f"cici咪 analyzing: {content[:80]}...", "timestamp": now},
+        })
+
         # Tasks created by cici咪 via MCP default to teamchat_session_id=1
         # (MCP server is stateless) — track what exists so we can fix sessions below.
         tasks_before = {t.id for t in task_table.list_tasks()}
 
-        analysis_prompt = build_cici_analysis_prompt(content)
         engine_log.info(f"🤔 No @mention → spawning cici咪 for analysis")
         router.mark_busy(AGENT_CICI)
         try:
@@ -175,12 +197,10 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
         # Fix teamchat_session_id on tasks cici咪 just created via MCP —
         # they must belong to the session this message arrived in, otherwise
         # ResultRelay would resume the wrong cici咪 session for review.
-        for t in task_table.list_tasks():
-            if t.id not in tasks_before and t.teamchat_session_id != teamchat_session_id:
-                task_table.update(t.id, teamchat_session_id=teamchat_session_id)
-                engine_log.info(
-                    f"🔧 Fixed task #{t.id} session {t.teamchat_session_id} → {teamchat_session_id}"
-                )
+        from engine.task_planner import fix_new_task_sessions
+        fixed = fix_new_task_sessions(task_table, tasks_before, teamchat_session_id)
+        if fixed:
+            engine_log.info(f"🔧 Fixed {fixed} analysis-created task(s) session")
 
         engine_log.info(f"📝 cici咪 analysis result ({len(analysis)} chars)")
         # Always show cici咪's output in chat bubble
@@ -217,6 +237,26 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
     store = request.app.state.store
     router_inst = request.app.state.router
     session_store = request.app.state.session_store
+    task_table = request.app.state.task_table
+
+    # 完善点⑥: target 正在执行任务（TaskScheduler 派发的）→ 转成任务排队，
+    # 避免同一 agent 并发 spawn（CLI session 冲突）。
+    if router_inst.is_busy(target):
+        queued = task_table.create(
+            agent=target.name,
+            title=clean[:50],
+            description=clean,
+            teamchat_session_id=teamchat_session_id,
+        )
+        engine_log.info(f"⏳ {target.name} busy → 消息排队为 task #{queued.id}")
+        await ws_mgr.broadcast({
+            "type": "system_message",
+            "data": {"content": f"{target.name} 正在忙，你的消息已排队（任务 #{queued.id}），空闲后自动处理",
+                     "timestamp": now},
+        })
+        return ChatResponse(target_agent=target.name, task_prompt=clean,
+                            status="queued")
+
     router_inst.mark_busy(target)
 
     await ws_mgr.broadcast({

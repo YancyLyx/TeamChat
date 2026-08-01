@@ -106,6 +106,22 @@ def blocked_by_failure(task_table: TaskTable,
     return result
 
 
+def fix_new_task_sessions(task_table: TaskTable, tasks_before: set[int],
+                          target_session: int) -> int:
+    """Fix teamchat_session_id on tasks created after `tasks_before` was captured.
+
+    MCP create_task is stateless and defaults to session 1; the caller knows the
+    real session (chat path / review path / scheduler dispatch of cici咪 tasks),
+    so it corrects the new tasks to belong there. Returns how many were fixed.
+    """
+    fixed = 0
+    for t in task_table.list_tasks():
+        if t.id not in tasks_before and t.teamchat_session_id != target_session:
+            task_table.update(t.id, teamchat_session_id=target_session)
+            fixed += 1
+    return fixed
+
+
 def dag_summary(task_table: TaskTable, teamchat_session_id: int | None = None) -> dict:
     """High-level summary of the task DAG for dashboard/debugging.
 

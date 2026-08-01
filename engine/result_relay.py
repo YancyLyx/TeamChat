@@ -107,13 +107,10 @@ class ResultRelay:
         )
         # Fix teamchat_session_id on tasks cici咪 just created during review
         # (完善点③ — same problem chat.py already fixes for the /api/chat path).
-        for t in self.task_table.list_tasks():
-            if t.id not in tasks_before and t.teamchat_session_id != target_session:
-                self.task_table.update(t.id, teamchat_session_id=target_session)
-                logger.info(
-                    f"🔧 Fixed review-created task #{t.id} session "
-                    f"{t.teamchat_session_id} → {target_session}"
-                )
+        from engine.task_planner import fix_new_task_sessions
+        fixed = fix_new_task_sessions(self.task_table, tasks_before, target_session)
+        if fixed:
+            logger.info(f"🔧 Fixed {fixed} review-created task(s) session → {target_session}")
         await self._broadcast({
             "type": "chat_message",
             "data": {"kind": "agent_reply", "agent": "cici咪",

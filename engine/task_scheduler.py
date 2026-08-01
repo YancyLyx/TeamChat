@@ -131,6 +131,9 @@ class TaskScheduler:
             "data": {"agent": agent.name, "prompt": task.title[:200],
                      "session_id": task.id, "timestamp": now},
         })
+        # Track existing tasks so we can fix the session of any tasks cici咪
+        # creates while executing this one (MCP defaults to session 1).
+        tasks_before = {t.id for t in self.task_table.list_tasks()}
 
         result: AgentResult | None = None
         retries = 0
@@ -165,6 +168,16 @@ class TaskScheduler:
             "data": {"kind": "agent_reply", "agent": agent.name,
                      "content": result.output[:500], "timestamp": finish_now},
         })
+
+        # cici咪 executing this task (e.g. a queued analysis) may have created
+        # new tasks via MCP (session defaults to 1) — fix them to this session.
+        if task.agent == "cici咪":
+            from engine.task_planner import fix_new_task_sessions
+            fixed = fix_new_task_sessions(
+                self.task_table, tasks_before, task.teamchat_session_id,
+            )
+            if fixed:
+                logger.info(f"🔧 Fixed {fixed} cici咪-created task(s) session")
 
         # Hand result to cici咪 for review — Engine does NOT mark done/failed.
         await self.result_relay.relay(task, result, retries=retries)

@@ -5,7 +5,8 @@ import pytest
 from engine.config import Config
 from engine.session_store import SessionStore
 from engine.task_planner import (
-    blocked_by_failure, dag_summary, detect_cycles, orphan_deps, task_tree,
+    blocked_by_failure, dag_summary, detect_cycles, fix_new_task_sessions,
+    orphan_deps, task_tree,
 )
 from engine.task_table import TaskTable
 
@@ -153,3 +154,21 @@ class TestOrphanAndBlocked:
         b = task_table.create("soso咪", "B", "y", depends_on=[a.id])
         task_table.update(a.id, status="done")
         assert blocked_by_failure(task_table) == []
+
+
+class TestFixNewTaskSessions:
+    def test_fixes_session_on_new_tasks(self, stores):
+        """MCP-created tasks default to session 1 — caller fixes them."""
+        ss, tt = stores
+        ss.create("会话2", "/tmp/t2")  # FK target for session 2
+        before = {t.id for t in tt.list_tasks()}
+        new_task = tt.create("coco咪", "X", "prompt")  # defaults to session 1
+        fixed = fix_new_task_sessions(tt, before, target_session=2)
+        assert fixed == 1
+        assert tt.get(new_task.id).teamchat_session_id == 2
+
+    def test_does_not_touch_existing_tasks(self, task_table):
+        existing = task_table.create("coco咪", "A")
+        fixed = fix_new_task_sessions(task_table, {existing.id}, target_session=1)
+        assert fixed == 0
+        assert task_table.get(existing.id).teamchat_session_id == 1
