@@ -144,8 +144,9 @@ class AgentRunner:
     def _build_agent_env(self, agent: AgentIdentity) -> dict:
         """Build subprocess env: inherit parent + inject agent's PAT + git identity.
 
-        Each agent's git commits / gh CLI calls then carry its own identity (ADR-003 §5),
-        so commits show "coco咪 (Codex Developer)" etc. instead of the human's identity.
+        Each agent's git commits / gh CLI calls then carry its own identity
+        (design spec §5 GitHub Identity Model), so commits show "coco咪 (Codex
+        Developer)" etc. instead of the human's identity.
         """
         env = os.environ.copy()
         token = self.config.get_token(agent)
