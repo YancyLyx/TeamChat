@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__teamchat__create_task",
+      "mcp__teamchat__update_task",
+      "mcp__teamchat__list_tasks",
+      "mcp__teamchat__get_task"
+    ]
+  }
+}

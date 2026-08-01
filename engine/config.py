@@ -59,14 +59,14 @@ ALL_AGENTS = (AGENT_CICI, AGENT_COCO, AGENT_SOSO)
 # ---- CLI command templates ----
 
 CLI_TEMPLATES: dict[str, list[str]] = {
-    "claude": ["claude", "--print", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio", "{prompt}"],
+    "claude": ["claude", "--print", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio", "--allowedTools", "mcp__teamchat__*", "{prompt}"],
     "codex": ["codex", "exec", "--json", "{prompt}"],
     "cursor": ["agent", "--print", "--output-format", "stream-json", "{prompt}"],
 }
 
 # Templates with --continue / --resume for session context
 CLI_CONTINUE_TEMPLATES: dict[str, list[str]] = {
-    "claude": ["claude", "--print", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio", "--continue", "{prompt}"],
+    "claude": ["claude", "--print", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio", "--allowedTools", "mcp__teamchat__*", "--continue", "{prompt}"],
     "codex": ["codex", "exec", "resume", "--last", "--json", "{prompt}"],
     "cursor": ["agent", "--print", "--output-format", "stream-json", "--continue", "{prompt}"],
 }
@@ -121,6 +121,7 @@ class Config:
             if agent.cli == "claude":
                 return [cli_path, "--print", "--verbose", "--output-format", "stream-json",
                         "--permission-prompt-tool", "stdio",
+                        "--allowedTools", "mcp__teamchat__*",
                         "--resume", session_id, prompt]
             if agent.cli == "codex":
                 return [cli_path, "exec", "resume", session_id, "--json", prompt]
