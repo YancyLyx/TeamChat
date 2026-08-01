@@ -47,7 +47,7 @@ from engine.result_relay import ResultRelay
 from engine.session_store import create_session_store
 from engine.task_scheduler import TaskScheduler
 
-from api.routes import agents, sessions, tasks, chat, teamchat_sessions, approval
+from api.routes import agents, sessions, tasks, chat, teamchat_sessions, approval, github
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +182,7 @@ def create_app() -> FastAPI:
     app.include_router(chat.router)
     app.include_router(teamchat_sessions.router)
     app.include_router(approval.router)
+    app.include_router(github.router)
     return app
 
 
