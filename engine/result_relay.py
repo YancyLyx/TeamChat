@@ -43,7 +43,7 @@ class ResultRelay:
         # cici咪's own results are not reviewed by itself; but after cici咪 finishes,
         # there may be queued results to drain.
         if task.agent == "cici咪":
-            await self._drain_if_idle()
+            await self.drain_if_idle()
             return
 
         self._pending.append((task, result))
@@ -51,10 +51,14 @@ class ResultRelay:
             f"📨 Result #{task.id} ({task.agent}) pending review, "
             f"queue={len(self._pending)}"
         )
-        await self._drain_if_idle()
+        await self.drain_if_idle()
 
-    async def _drain_if_idle(self):
-        """Review all pending results in one batch, if cici咪 is free."""
+    async def drain_if_idle(self):
+        """Review all pending results in one batch, if cici咪 is free.
+
+        Public — called by relay() and by chat.py after cici咪 finishes a turn,
+        so queued results are reviewed promptly instead of waiting for the next relay.
+        """
         while True:
             if self._reviewing or not self._pending or self.router.is_busy(AGENT_CICI):
                 if self._pending and self.router.is_busy(AGENT_CICI):
@@ -68,6 +72,11 @@ class ResultRelay:
                 await self._spawn_cici_review(batch)
             except Exception as exc:
                 logger.error(f"❌ cici咪 review spawn failed: {exc}")
+                # Re-queue the batch so results are not lost (soso咪 review 备注1),
+                # then stop this pass — retry on the next drain trigger
+                # (avoids a hot retry loop).
+                self._pending = batch + self._pending
+                return
             finally:
                 self.router.mark_free(AGENT_CICI)
                 self._reviewing = False

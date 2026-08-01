@@ -196,7 +196,7 @@ class TestResultRelay:
 
         # Now cici咪 goes idle
         router.is_busy.return_value = False
-        await relay._drain_if_idle()
+        await relay.drain_if_idle()
 
         assert len(relay._pending) == 0
         mock_runner._run.assert_awaited_once()  # one batched review spawn
@@ -212,6 +212,23 @@ class TestResultRelay:
         assert "mcp__teamchat__create_task" in prompt
         assert "加刷新按钮" in prompt
         assert "按钮已添加" in prompt
+
+    async def test_review_spawn_failure_requeues_batch(self, task_table, mock_runner):
+        """If the review spawn fails, results are re-queued, not lost (soso咪 review 备注1)."""
+        router = MagicMock()
+        router.is_busy.return_value = False
+        session_store = MagicMock()
+        session_store.get_agent_session_id.return_value = "sid"
+        mock_runner._run.side_effect = RuntimeError("review spawn boom")
+
+        relay = ResultRelay(mock_runner, router, session_store, task_table)
+        task = task_table.create(agent="coco咪", title="t", description="d")
+
+        await relay.relay(task, _make_result())
+
+        # batch re-queued for a later retry — nothing lost
+        assert len(relay._pending) == 1
+        assert relay._pending[0][0].id == task.id
 
     def test_build_review_prompt_marks_failed_result(self, task_table):
         relay = ResultRelay(MagicMock(), MagicMock(), MagicMock(), task_table)

@@ -19,6 +19,21 @@ from engine.runner import AgentTask, AgentResult
 
 GREETING_KEYWORDS = {"大家好", "hello", "hi", "在吗", "有人在吗", "你好", "你们好", "嗨"}
 
+
+async def _drain_relay(request) -> None:
+    """After cici咪 frees up, immediately process queued review results.
+
+    Without this, queued results wait for the next relay() call, adding latency
+    (soso咪 review 备注2 on PR #94).
+    """
+    relay = getattr(request.app.state, "result_relay", None)
+    if relay:
+        try:
+            await relay.drain_if_idle()
+        except Exception as exc:
+            logger.warning(f"drain relay failed: {exc}")
+
+
 logger = logging.getLogger("teamchat.chat")
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -97,6 +112,8 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
                     session_store, teamchat_session_id)
             finally:
                 router.mark_free(agent)
+                if agent == AGENT_CICI:
+                    await _drain_relay(request)
             # Log to store
             store.log(
                 agent_name=agent.name, prompt=task.full_prompt(),
@@ -147,6 +164,8 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
             )
         finally:
             router.mark_free(AGENT_CICI)
+            # cici咪 空闲了 → 立即处理排队的审核结果（soso咪 review 备注2）
+            await _drain_relay(request)
         analysis = result.output.strip()
 
         engine_log.info(f"📝 cici咪 analysis result ({len(analysis)} chars)")
@@ -221,3 +240,5 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
                             task_prompt=clean, status="completed" if result.success else "failed")
     finally:
         router_inst.mark_free(target)
+        if target == AGENT_CICI:
+            await _drain_relay(request)
