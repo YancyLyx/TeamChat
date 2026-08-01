@@ -65,6 +65,7 @@ Phase: ADR-005 Phase 4.0 **端到端验证通过**（2026-08-01 本地）。协�
 | PR #95 备注: 中间重试写入 agent_calls（完整审计） | cici咪 | 中 |
 | runner 备注: strip 兄弟 agent 的 TEAMCHAT_*_TOKEN | cici咪 | 中 |
 | 数据库优化: agent_calls 大文本外置（prompt/output 存文件）+ 历史归档（阈值 ~10 万行触发，现无需急） | cici咪 | 低 |
+| chat.py is_busy 排队路径测试（@agent 排队/无@mention 排队/greeting 跳过） | cici咪 | 中 |
 | Tasks 看板（前端，ADR-003 §8.2 [📋 Tasks] tab 待实现；数据已加载未渲染） | coco咪 | 中 |
 | Phase 4.1 GitHub Adapter（依赖 GitHub 恢复） | cici咪 | 低 |
 
@@ -76,6 +77,7 @@ Phase: ADR-005 Phase 4.0 **端到端验证通过**（2026-08-01 本地）。协�
 - 任务 #4/#5：**/api/chat 完整链路** → 发消息 → cici咪 分析 → create_task → session 修正 → 派发 → 执行 → 回流 → 审核 → done ✅
 - 修复 1：claude MCP 工具权限（workspace 未信任时 settings.json 失效，--allowedTools 参数生效）
 - 修复 2：MCP create_task 任务 teamchat_session_id 硬编码 1 → chat.py 分析后修正为当前 session
+- Phase 4.2 两轮完善：soso咪 审查通过（92 passed）；修复其建议的 ①无@mention mark_busy 竞态窗口 ②update_task 循环复检。测试计数口径：92（6 文件）vs 100（7 文件含 approval）
 
 ## 铁律更新
 

@@ -98,9 +98,16 @@ def handle_update_task(args: dict) -> dict:
     if "depends_on" in args:
         kwargs["depends_on"] = args["depends_on"]
     tt.update(task_id, **kwargs)
+    # soso咪 审查建议: update 后复检循环（create 有 warning，update 也要有）
+    warning = None
+    cycles = detect_cycles(tt)
+    if cycles:
+        warning = f"⚠️ 更新后依赖存在循环: {cycles}"
+        logger.warning(f"update_task #{task_id} 后存在循环: {cycles}")
     logger.info(f"🔄 update_task: #{task_id} → {status}")
     return {"task_id": task_id, "status": status,
-            "depends_on": args.get("depends_on", task.depends_on)}
+            "depends_on": args.get("depends_on", task.depends_on),
+            "warning": warning}
 
 
 def handle_list_tasks(args: dict) -> dict:

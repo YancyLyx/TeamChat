@@ -172,6 +172,9 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
             return ChatResponse(target_agent="cici咪", task_prompt=content,
                                 status="queued_for_cici")
 
+        # 立刻 mark_busy 消除竞态窗口（soso咪 审查: is_busy 检查与 mark_busy
+        # 之间不能有 await，否则 TaskScheduler 可能占用 cici咪 → 双 spawn）
+        router.mark_busy(AGENT_CICI)
         await ws_mgr.broadcast({
             "type": "system_message",
             "data": {"content": f"cici咪 analyzing: {content[:80]}...", "timestamp": now},
@@ -182,7 +185,6 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
         tasks_before = {t.id for t in task_table.list_tasks()}
 
         engine_log.info(f"🤔 No @mention → spawning cici咪 for analysis")
-        router.mark_busy(AGENT_CICI)
         try:
             result = await spawn_with_session(
                 AGENT_CICI, AgentTask(prompt=analysis_prompt, timeout_seconds=120),
