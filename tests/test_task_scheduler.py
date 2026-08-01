@@ -178,6 +178,35 @@ class TestTaskScheduler:
         assert relayed.args[1].success is False
         assert relayed.kwargs.get("retries") == 3
 
+    async def test_retry_attempts_are_audited(self, task_table, mock_runner, monkeypatch):
+        """Every retried attempt is written to agent_calls (soso咪 备注, PR #95)."""
+        import engine.task_scheduler as ts
+        monkeypatch.setattr(ts, "RETRY_DELAYS", (0, 0, 0))
+        task = task_table.create(agent="coco咪", title="t", description="d")
+        mock_runner._run.side_effect = [
+            _make_result(exit_code=1, output="fail 1"),
+            _make_result(exit_code=1, output="fail 2"),
+            _make_result(exit_code=0, output="ok"),
+        ]
+        result_relay = AsyncMock()
+        router = MagicMock()
+        store = MagicMock()
+        session_store = MagicMock()
+        session_store.get_agent_session_id.return_value = "sid"
+
+        scheduler = TaskScheduler(
+            mock_runner, router, task_table, session_store, store, result_relay,
+        )
+        await scheduler._dispatch(task)
+
+        # 2 retried attempts logged as scheduled_task_retry + final as scheduled_task
+        retry_logs = [c for c in store.log.call_args_list
+                      if c.kwargs.get("task_type") == "scheduled_task_retry"]
+        final_logs = [c for c in store.log.call_args_list
+                      if c.kwargs.get("task_type") == "scheduled_task"]
+        assert len(retry_logs) == 2
+        assert len(final_logs) == 1
+
 
 # ---- ResultRelay ----
 

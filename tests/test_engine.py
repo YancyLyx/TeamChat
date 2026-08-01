@@ -557,3 +557,22 @@ class TestRunnerAgentEnv:
             env = runner._build_agent_env(agent)
             assert env["GIT_AUTHOR_NAME"] == agent.git_name
             assert env["GIT_AUTHOR_EMAIL"] == agent.git_email
+
+    def test_strips_sibling_agent_tokens(self, tmp_path, monkeypatch):
+        """An agent's subprocess must not see sibling agents' PATs (soso咪 备注2)."""
+        monkeypatch.setenv("TEAMCHAT_CICI_TOKEN", "pat_cici")
+        monkeypatch.setenv("TEAMCHAT_COCO_TOKEN", "pat_coco")
+        monkeypatch.setenv("TEAMCHAT_SOSO_TOKEN", "pat_soso")
+        runner = self._make_runner(tmp_path)
+
+        # coco咪's env keeps its own token, strips cici咪 and soso咪
+        env = runner._build_agent_env(AGENT_COCO)
+        assert env.get("TEAMCHAT_COCO_TOKEN") == "pat_coco"
+        assert "TEAMCHAT_CICI_TOKEN" not in env
+        assert "TEAMCHAT_SOSO_TOKEN" not in env
+
+        # cici咪's env strips the other two
+        env = runner._build_agent_env(AGENT_CICI)
+        assert env.get("TEAMCHAT_CICI_TOKEN") == "pat_cici"
+        assert "TEAMCHAT_COCO_TOKEN" not in env
+        assert "TEAMCHAT_SOSO_TOKEN" not in env

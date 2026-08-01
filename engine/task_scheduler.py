@@ -93,6 +93,16 @@ class TaskScheduler:
                 )
             if result.success or retries >= MAX_RETRIES:
                 return result, retries
+            # Audit every retried attempt (soso咪 review 备注 on PR #95) —
+            # final attempt is logged by _dispatch with task_type="scheduled_task".
+            self.store.log(
+                agent_name=agent.name, prompt=agent_task.full_prompt(),
+                output=result.output, exit_code=result.exit_code,
+                duration_ms=result.duration_ms, token_usage=result.token_usage,
+                task_type="scheduled_task_retry",
+                teamchat_session_id=task.teamchat_session_id,
+                started_at=result.started_at, finished_at=result.finished_at,
+            )
             retries += 1
             delay = RETRY_DELAYS[min(retries, len(RETRY_DELAYS)) - 1]
             logger.warning(

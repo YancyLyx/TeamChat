@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator
 
-from engine.config import AgentIdentity, Config
+from engine.config import ALL_AGENTS, AgentIdentity, Config
 from engine.codex_events import parse_codex_jsonl_output
 
 logger = logging.getLogger(__name__)
@@ -153,6 +153,11 @@ class AgentRunner:
         if token:
             env["GH_TOKEN"] = token
             env["GITHUB_TOKEN"] = token
+        # Strip sibling agents' PATs — this agent's subprocess should only see its
+        # own token (soso咪 review 备注2 on PR #93).
+        for other in ALL_AGENTS:
+            if other.name != agent.name:
+                env.pop(other.token_env, None)
         env["GIT_AUTHOR_NAME"] = agent.git_name
         env["GIT_AUTHOR_EMAIL"] = agent.git_email
         env["GIT_COMMITTER_NAME"] = agent.git_name
