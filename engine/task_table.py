@@ -137,7 +137,7 @@ class TaskTable:
         """Update task fields. e.g., update(14, status='done', output_summary='...')"""
         allowed = {"agent", "title", "description", "status",
                    "depends_on", "github_issue", "output_summary",
-                   "started_at", "finished_at"}
+                   "started_at", "finished_at", "teamchat_session_id"}
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
             return

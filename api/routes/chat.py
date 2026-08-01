@@ -153,6 +153,10 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
         store = request.app.state.store
         router = request.app.state.router
         session_store = request.app.state.session_store
+        task_table = request.app.state.task_table
+        # Tasks created by cici咪 via MCP default to teamchat_session_id=1
+        # (MCP server is stateless) — track what exists so we can fix sessions below.
+        tasks_before = {t.id for t in task_table.list_tasks()}
 
         analysis_prompt = build_cici_analysis_prompt(content)
         engine_log.info(f"🤔 No @mention → spawning cici咪 for analysis")
@@ -167,6 +171,16 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
             # cici咪 空闲了 → 立即处理排队的审核结果（soso咪 review 备注2）
             await _drain_relay(request)
         analysis = result.output.strip()
+
+        # Fix teamchat_session_id on tasks cici咪 just created via MCP —
+        # they must belong to the session this message arrived in, otherwise
+        # ResultRelay would resume the wrong cici咪 session for review.
+        for t in task_table.list_tasks():
+            if t.id not in tasks_before and t.teamchat_session_id != teamchat_session_id:
+                task_table.update(t.id, teamchat_session_id=teamchat_session_id)
+                engine_log.info(
+                    f"🔧 Fixed task #{t.id} session {t.teamchat_session_id} → {teamchat_session_id}"
+                )
 
         engine_log.info(f"📝 cici咪 analysis result ({len(analysis)} chars)")
         # Always show cici咪's output in chat bubble
