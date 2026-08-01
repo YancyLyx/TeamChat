@@ -20,6 +20,7 @@ Phase: ADR-005 Phase 4.0 **端到端验证通过**（2026-08-01 本地）。协�
 | 08-01 | PR #94: Task Scheduler + Result Relay 协作闭环（已合并） | #94 |
 | 08-01 | PR #95: 失败自动重试（已 review 通过，GitHub 暂停未合并，**已本地合并到 main**） | #95 |
 | 08-01 | **端到端验证通过**（session 2 闭环验证）：任务 #3 soso咪 完整闭环 done；发现并修复 MCP 权限（--allowedTools） | 本地 |
+| 08-01 | **/api/chat 链路验证通过**：发消息→分析→create_task→session 修正→派发→执行→回流→审核→done（#4 #5）；发现并修复 MCP create_task session 硬编码 1 | 本地 |
 | 07-31 | PR #92: mdRender 重复声明修复（已合并） | #92 |
 | 07-31 | PR #80: 关闭（已过时） | - |
 | 07-31 | 更新 cici咪 session ID | - |
@@ -36,7 +37,7 @@ Phase: ADR-005 Phase 4.0 **端到端验证通过**（2026-08-01 本地）。协�
 | 内容 | 谁 | 优先级 |
 |---|---|---|
 | GitHub 恢复后：push main（含 PR #95 重试 + --allowedTools 修复）+ 关 PR #95 + revoke 重生成 PAT | cici咪/人类 | 高 |
-| Dashboard 发消息端到端验证（当前验证走 SQLite 建任务，未走 /api/chat） | cici咪 | 高 |
+| Dashboard UI 发消息验证（当前用 curl 测 /api/chat 通过，未测浏览器 UI） | cici咪 | 中 |
 | PR #95 备注: 中间重试写入 agent_calls（完整审计） | cici咪 | 中 |
 | runner 备注: strip 兄弟 agent 的 TEAMCHAT_*_TOKEN | cici咪 | 中 |
 | Phase 4.1 GitHub Adapter（依赖 GitHub 恢复） | cici咪 | 低 |
@@ -46,7 +47,9 @@ Phase: ADR-005 Phase 4.0 **端到端验证通过**（2026-08-01 本地）。协�
 - session 2「闭环验证」：cici咪 claude_id=c3dd3766（冷启动捕获），coco咪 codex_id=019fbc3b
 - 任务 #2 (coco咪)：手动模拟审核 → update_task(2, done) ✅
 - 任务 #3 (soso咪)：**真实闭环** → 派发 → cursor 执行 → 回流 → cici咪(--resume) 审核 → update_task(3, done) ✅
-- 发现并修复：claude MCP 工具权限（workspace 未信任时 settings.json 失效，--allowedTools 参数生效）
+- 任务 #4/#5：**/api/chat 完整链路** → 发消息 → cici咪 分析 → create_task → session 修正 → 派发 → 执行 → 回流 → 审核 → done ✅
+- 修复 1：claude MCP 工具权限（workspace 未信任时 settings.json 失效，--allowedTools 参数生效）
+- 修复 2：MCP create_task 任务 teamchat_session_id 硬编码 1 → chat.py 分析后修正为当前 session
 
 ## 铁律更新
 
