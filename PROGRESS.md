@@ -40,6 +40,8 @@ Phase: ADR-005 Phase 4.0 **端到端验证通过**（2026-08-01 本地）。协�
 | Dashboard UI 发消息验证（当前用 curl 测 /api/chat 通过，未测浏览器 UI） | cici咪 | 中 |
 | PR #95 备注: 中间重试写入 agent_calls（完整审计） | cici咪 | 中 |
 | runner 备注: strip 兄弟 agent 的 TEAMCHAT_*_TOKEN | cici咪 | 中 |
+| 数据库优化: agent_calls 大文本外置（prompt/output 存文件）+ 历史归档（阈值 ~10 万行触发，现无需急） | cici咪 | 低 |
+| Tasks 看板（前端，ADR-003 §8.2 [📋 Tasks] tab 待实现；数据已加载未渲染） | coco咪 | 中 |
 | Phase 4.1 GitHub Adapter（依赖 GitHub 恢复） | cici咪 | 低 |
 
 ## 验证记录（2026-08-01）
