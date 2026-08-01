@@ -185,6 +185,23 @@ class TestMcpToolHandlers:
         assert root["id"] == a.id
         assert root["children"][0]["id"] == b.id
 
+    def test_update_pending_resets_retry_records(self, task_table: TaskTable):
+        """soso咪 备注1: 手动重试（pending）时清零 retry_count/last_error。"""
+        task = task_table.create("coco咪", "A")
+        task_table.update(task.id, retry_count=3, last_error="boom")
+        mcp.process_request({
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "tools/call",
+            "params": {
+                "name": "update_task",
+                "arguments": {"task_id": task.id, "status": "pending"},
+            },
+        })
+        updated = task_table.get(task.id)
+        assert updated.retry_count == 0
+        assert updated.last_error == ""
+
     def test_update_task_can_reassign_agent(self, task_table: TaskTable):
         """Phase 4.5: update_task 支持 agent 转派（自愈三选项之一）。"""
         task = task_table.create("coco咪", "A")

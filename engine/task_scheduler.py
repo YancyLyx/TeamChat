@@ -189,7 +189,10 @@ class TaskScheduler:
                 logger.info(f"🔧 Fixed {fixed} cici咪-created task(s) session")
 
         # Hand result to cici咪 for review — Engine does NOT mark done/failed.
-        await self.result_relay.relay(task, result, retries=retries)
+        # Refresh task first so retry_count/last_error written during retries
+        # are visible in the review prompt (soso咪 review Bug 1 on Phase 4.5).
+        fresh_task = self.task_table.get(task.id) or task
+        await self.result_relay.relay(fresh_task, result, retries=retries)
 
     async def run(self):
         """Main poll loop. Dispatch unblocked tasks whose agent is free."""

@@ -100,6 +100,10 @@ def handle_update_task(args: dict) -> dict:
         kwargs["depends_on"] = args["depends_on"]
     if "agent" in args:
         kwargs["agent"] = args["agent"]
+    # soso咪 备注: 手动重试（pending）时清零重试记录，重新计数
+    if status == "pending":
+        kwargs["retry_count"] = 0
+        kwargs["last_error"] = ""
     tt.update(task_id, **kwargs)
     # soso咪 审查建议: update 后复检循环（create 有 warning，update 也要有）
     warning = None
@@ -108,7 +112,9 @@ def handle_update_task(args: dict) -> dict:
         warning = f"⚠️ 更新后依赖存在循环: {cycles}"
         logger.warning(f"update_task #{task_id} 后存在循环: {cycles}")
     logger.info(f"🔄 update_task: #{task_id} → {status}")
+    updated = tt.get(task_id)
     return {"task_id": task_id, "status": status,
+            "agent": updated.agent if updated else task.agent,
             "depends_on": args.get("depends_on", task.depends_on),
             "warning": warning}
 
@@ -154,7 +160,7 @@ TOOLS = {
             "type": "object",
             "properties": {
                 "task_id": {"type": "integer"},
-                "status": {"type": "string", "enum": ["pending", "running", "done", "failed"]},
+                "status": {"type": "string", "enum": ["pending", "running", "done", "failed", "abandoned"]},
                 "depends_on": {
                     "type": "array",
                     "items": {"type": "integer"},

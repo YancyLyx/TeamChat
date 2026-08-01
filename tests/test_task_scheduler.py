@@ -199,6 +199,49 @@ class TestTaskScheduler:
         assert updated.retry_count == 3  # MAX_RETRIES
         assert "always broken" in updated.last_error
 
+    async def test_relay_receives_refreshed_task(self, task_table, mock_runner, monkeypatch):
+        """soso咪 Bug 1: relay 前刷新 task，last_error 在生产路径可见。"""
+        import engine.task_scheduler as ts
+        monkeypatch.setattr(ts, "RETRY_DELAYS", (0, 0, 0))
+        task = task_table.create(agent="coco咪", title="t", description="d")
+        mock_runner._run.return_value = _make_result(exit_code=1, output="boom error")
+        result_relay = AsyncMock()
+        router = MagicMock()
+        store = MagicMock()
+        session_store = MagicMock()
+        session_store.get_agent_session_id.return_value = "sid"
+
+        scheduler = TaskScheduler(
+            mock_runner, router, task_table, session_store, store, result_relay,
+        )
+        await scheduler._dispatch(task)
+
+        relayed_task = result_relay.relay.await_args.args[0]
+        assert relayed_task.last_error != ""  # 刷新后的 task 带 last_error
+
+    async def test_reassigned_task_dispatches_to_new_agent(self, task_table, mock_runner):
+        """soso咪 备注4: 转派后（agent 改）TaskScheduler 派发给新 agent。"""
+        task = task_table.create(agent="coco咪", title="t", description="d")
+        task_table.update(task.id, agent="soso咪", status="pending")  # cici咪 转派
+
+        unblocked = task_table.unblocked_tasks()
+        assert unblocked and unblocked[0].agent == "soso咪"
+
+        mock_runner._run.return_value = _make_result(agent_name="soso咪")
+        result_relay = AsyncMock()
+        router = MagicMock()
+        store = MagicMock()
+        session_store = MagicMock()
+        session_store.get_agent_session_id.return_value = "sid"
+
+        scheduler = TaskScheduler(
+            mock_runner, router, task_table, session_store, store, result_relay,
+        )
+        await scheduler._dispatch(unblocked[0])
+
+        agent_arg = mock_runner._run.await_args.args[0]
+        assert agent_arg.name == "soso咪"  # 派发给新 agent
+
     async def test_retry_attempts_are_audited(self, task_table, mock_runner, monkeypatch):
         """Every retried attempt is written to agent_calls (soso咪 备注, PR #95)."""
         import engine.task_scheduler as ts

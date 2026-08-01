@@ -149,6 +149,7 @@ class ResultRelay:
             "- 保持 DAG 无环：禁止让任务依赖自己的后代",
             "",
             "## 失败任务的三选项（ADR-003 C6，自愈机制）:",
+            "注意：失败任务当前 status=running（Engine 不自动标记失败，符合铁律），请用三选项之一更新：",
             "对标记为失败的任务，从三个选项中选择并执行（一个即可）：",
             "  1. 重试 → update_task(task_id=<id>, status=\"pending\")（问题可能是暂时的）",
             "  2. 转派 → update_task(task_id=<id>, agent=<另一位咪>, status=\"pending\")（换人重做）",
