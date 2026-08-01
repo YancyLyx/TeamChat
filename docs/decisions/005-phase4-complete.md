@@ -392,6 +392,50 @@ cici咪 分析 → 建模为多步骤 DAG:
 Task Scheduler 按 DAG 执行
 ```
 
+**场景 4：DAG 中途发现问题（设计决策：追加修复，不搞回退）**
+```
+A(开发) → B(review) → C(合并)，B 发现 A 有 bug
+  ↓
+方案 ✅（采纳）: cici咪 审核 B 结果时 → 创建 D(修复, depends_on=[B])
+  → E(复查, depends_on=[D]) → C(合并)
+  DAG: A → B → D → E → C（无环，历史保留，审计完整）
+方案 ❌（否决）: 重置 A 重新执行
+  - 原 prompt 没有 bug 信息，agent 不知道为何重做
+  - 原 A 的完成记录还在，审计混乱
+  - 需要"回退"特殊机制，增加复杂度
+回退只用于极端情况（整个 DAG 方向错误、需求彻底推翻）
+```
+
+**场景 5：用户中途提问（设计决策：排队为 DAG 新节点）**
+```
+TaskScheduler 派发 soso咪 执行任务 X（running）
+  ↓
+用户发 "@soso咪 先看这个问题"
+  → soso咪 busy → 消息排队成任务 D（depends_on=[]）
+  → soso咪 完成 X → 审核 → 空闲 → 派发 D
+  → soso咪 处理用户问题
+同一 agent 绝不并发 spawn（CLI session 冲突），
+用户中途提问 = DAG 追加节点（与场景 4 原则一致）
+```
+
+**实施完善点（2026-08-01 落地）**
+
+| # | 完善点 | 实现 |
+|---|---|---|
+| ① | 依赖失败/废弃 → 静默阻塞 | `orphan_deps()` + `blocked_by_failure()`，`dag_summary` 返回，cici咪 可发现 |
+| ② | 依赖不存在（孤儿依赖） | `create_task` 校验 depends_on 存在 → 警告 |
+| ③ | 审核/分析创建的 MCP 任务 session 错误（默认 1） | `fix_new_task_sessions()` 共享函数，chat/result_relay/scheduler 三处调用 |
+| ④ | prompt 说 update_task 能修 depends_on 但 MCP 不支持 | `update_task` 支持可选 depends_on（schema + handler） |
+| ⑤ | 审核 prompt 引导"追加修复" | ResultRelay 审核 prompt 明确：发现问题 → 创建修复任务，不回退 |
+| ⑥ | 用户消息 vs 自动派发并发冲突 | chat.py 三处路径 is_busy 检查：空闲直接 spawn，忙时排队成任务（TaskScheduler 调度）；greeting 忙的跳过 |
+
+**engine/task_planner.py 提供的确定性工具（Engine 不决策）**：
+- `detect_cycles()` — 循环依赖检测（DFS 三色标记，支持 session 隔离）
+- `task_tree()` — 某任务的 DAG 子树
+- `dag_summary()` — 概况（数量/状态/循环/孤儿/失败阻塞）
+- `fix_new_task_sessions()` — MCP 创建任务 session 修正
+- MCP 工具：`dag_summary`、`task_tree`（共 6 个工具）
+
 **优先级**：高（拆分是自治的前提）
 
 **预估工作量**：4-5 天
