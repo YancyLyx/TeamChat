@@ -8,9 +8,20 @@ Phase: ADR-005 Phase 4.0 **端到端验证通过**（2026-08-01 本地）。协�
 
 ## ⚠️ 阻塞
 
-| 内容 | 状态 |
-|---|---|
-| **GitHub 账号 YancyLyx 被暂停** | 2026-08-01 发现。所有 GitHub 操作不可用（push/merge/gh）。等待用户申诉恢复。恢复后需：push 本地 main（含 PR #95 重试逻辑，已本地合并）+ 关闭/合并 PR #95 + **revoke 重生成 3 个 PAT**（已暴露在对话） |
+**GitHub 账号 YancyLyx 被暂停**（2026-08-01 发现，用户申诉中）。所有 GitHub 操作不可用（push/merge/gh）。本地开发不受影响。
+
+### GitHub 恢复后的处理清单（用户告知恢复后执行）
+
+1. **push 本地 main**（含以下本地提交）：
+   - `32790ed` feat: 失败自动重试（PR #95，已本地合并）
+   - `eaabf33` fix: claude --allowedTools（MCP 权限）
+   - `20852e1` fix: MCP create_task session 硬编码
+   - `9cdb3e2` feat: strip 兄弟 token + 重试审计
+   - 各 docs 提交（PROGRESS/ADR 更新）
+2. **处理 PR #95**：已本地合并 → GitHub 上关闭（或 push 后 close）
+3. **revoke + 重生成 3 个 PAT**（已暴露在对话，必须换）→ 更新 `~/.zshrc`
+4. **验证 push 后无冲突**，跑一遍单元测试确认
+5. 后续：Phase 4.1 GitHub Adapter 才能实测（Webhook/Issue 同步）
 
 ## ✅ 本轮已完成（本地 main）
 
