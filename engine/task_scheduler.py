@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 POLL_INTERVAL = 2.0  # seconds
 DEFAULT_TIMEOUT = 300
+MAX_RETRIES = 3  # transient failure retries (ADR-003 C6)
+RETRY_DELAYS = (1, 2, 4)  # exponential backoff in seconds
 
 
 class TaskScheduler:
@@ -63,6 +65,42 @@ class TaskScheduler:
             except Exception as exc:
                 logger.warning(f"broadcast failed: {exc}")
 
+    async def _spawn_with_retry(self, task: Task, agent: AgentIdentity,
+                                agent_task: AgentTask) -> tuple[AgentResult, int]:
+        """Spawn agent with transient-failure retries (ADR-003 C6).
+
+        Deterministic retry: exit_code != 0 → retry up to MAX_RETRIES with backoff.
+        The retry decision (retry/reassign/abandon) after exhaustion is cici咪's —
+        the final failed result still goes through ResultRelay.
+        """
+        retries = 0
+        while True:
+            try:
+                result = await spawn_with_session(
+                    agent, agent_task, self.runner, self.session_store,
+                    task.teamchat_session_id,
+                )
+            except Exception as exc:
+                logger.error(f"❌ Task #{task.id} spawn error: {exc}")
+                result = AgentResult(
+                    agent_name=agent.name,
+                    task_prompt=agent_task.full_prompt(),
+                    output=f"DISPATCH ERROR: {exc}",
+                    exit_code=1,
+                    duration_ms=0,
+                    started_at=datetime.now(timezone.utc).isoformat(),
+                    finished_at=datetime.now(timezone.utc).isoformat(),
+                )
+            if result.success or retries >= MAX_RETRIES:
+                return result, retries
+            retries += 1
+            delay = RETRY_DELAYS[min(retries, len(RETRY_DELAYS)) - 1]
+            logger.warning(
+                f"⏳ Task #{task.id} failed ({retries}/{MAX_RETRIES}), "
+                f"retry in {delay}s"
+            )
+            await asyncio.sleep(delay)
+
     async def _dispatch(self, task: Task):
         """Spawn the agent for one task, then hand the result to ResultRelay."""
         agent = self._find_agent(task.agent)
@@ -85,26 +123,13 @@ class TaskScheduler:
         })
 
         result: AgentResult | None = None
+        retries = 0
         try:
             agent_task = AgentTask(
                 prompt=task.description or task.title,
                 timeout_seconds=DEFAULT_TIMEOUT,
             )
-            result = await spawn_with_session(
-                agent, agent_task, self.runner, self.session_store,
-                task.teamchat_session_id,
-            )
-        except Exception as exc:
-            logger.error(f"❌ Task #{task.id} spawn error: {exc}")
-            result = AgentResult(
-                agent_name=agent.name,
-                task_prompt=task.description or task.title,
-                output=f"DISPATCH ERROR: {exc}",
-                exit_code=1,
-                duration_ms=0,
-                started_at=now,
-                finished_at=datetime.now(timezone.utc).isoformat(),
-            )
+            result, retries = await self._spawn_with_retry(task, agent, agent_task)
         finally:
             self.router.mark_free(agent)
 
@@ -132,7 +157,7 @@ class TaskScheduler:
         })
 
         # Hand result to cici咪 for review — Engine does NOT mark done/failed.
-        await self.result_relay.relay(task, result)
+        await self.result_relay.relay(task, result, retries=retries)
 
     async def run(self):
         """Main poll loop. Dispatch unblocked tasks whose agent is free."""

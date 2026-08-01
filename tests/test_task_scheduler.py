@@ -131,6 +131,53 @@ class TestTaskScheduler:
         relayed_result = result_relay.relay.await_args.args[1]
         assert relayed_result.success is False
 
+    async def test_retry_transient_failure(self, task_table, mock_runner, monkeypatch):
+        """First failure is retried; success on second attempt reaches cici咪 with retries=1."""
+        import engine.task_scheduler as ts
+        monkeypatch.setattr(ts, "RETRY_DELAYS", (0, 0, 0))
+        task = task_table.create(agent="coco咪", title="t", description="d")
+        mock_runner._run.side_effect = [
+            _make_result(exit_code=1, output="fail once"),
+            _make_result(exit_code=0, output="ok"),
+        ]
+        result_relay = AsyncMock()
+        router = MagicMock()
+        store = MagicMock()
+        session_store = MagicMock()
+        session_store.get_agent_session_id.return_value = "sid"
+
+        scheduler = TaskScheduler(
+            mock_runner, router, task_table, session_store, store, result_relay,
+        )
+        await scheduler._dispatch(task)
+
+        assert mock_runner._run.await_count == 2  # 1 attempt + 1 retry
+        relayed = result_relay.relay.await_args
+        assert relayed.args[1].success is True
+        assert relayed.kwargs.get("retries") == 1
+
+    async def test_retry_exhausted_still_relays_failure(self, task_table, mock_runner, monkeypatch):
+        """After MAX_RETRIES failures, the final failed result still reaches cici咪."""
+        import engine.task_scheduler as ts
+        monkeypatch.setattr(ts, "RETRY_DELAYS", (0, 0, 0))
+        task = task_table.create(agent="coco咪", title="t", description="d")
+        mock_runner._run.return_value = _make_result(exit_code=1, output="always fails")
+        result_relay = AsyncMock()
+        router = MagicMock()
+        store = MagicMock()
+        session_store = MagicMock()
+        session_store.get_agent_session_id.return_value = "sid"
+
+        scheduler = TaskScheduler(
+            mock_runner, router, task_table, session_store, store, result_relay,
+        )
+        await scheduler._dispatch(task)
+
+        assert mock_runner._run.await_count == 4  # 1 + 3 retries
+        relayed = result_relay.relay.await_args
+        assert relayed.args[1].success is False
+        assert relayed.kwargs.get("retries") == 3
+
 
 # ---- ResultRelay ----
 
@@ -206,7 +253,7 @@ class TestResultRelay:
         task = task_table.create(agent="coco咪", title="加刷新按钮", description="d")
         result = _make_result(output="按钮已添加")
 
-        prompt = relay._build_review_prompt([(task, result)])
+        prompt = relay._build_review_prompt([(task, result, 0)])
 
         assert "mcp__teamchat__update_task" in prompt
         assert "mcp__teamchat__create_task" in prompt
@@ -235,6 +282,7 @@ class TestResultRelay:
         task = task_table.create(agent="coco咪", title="t", description="d")
         result = _make_result(output="error", exit_code=1)
 
-        prompt = relay._build_review_prompt([(task, result)])
+        prompt = relay._build_review_prompt([(task, result, 3)])
 
         assert "失败" in prompt
+        assert "重试 3 次" in prompt  # retry info surfaced to cici咪

@@ -35,18 +35,22 @@ class ResultRelay:
         self.session_store = session_store
         self.task_table = task_table
         self.ws_manager = ws_manager
-        self._pending: list[tuple[Task, AgentResult]] = []
+        self._pending: list[tuple[Task, AgentResult, int]] = []
         self._reviewing = False
 
-    async def relay(self, task: Task, result: AgentResult):
-        """Push a task result to cici咪 for review (or queue if cici咪 is busy)."""
+    async def relay(self, task: Task, result: AgentResult, retries: int = 0):
+        """Push a task result to cici咪 for review (or queue if cici咪 is busy).
+
+        retries: how many automatic retries the scheduler performed before this
+        result — surfaced to cici咪 in the review prompt.
+        """
         # cici咪's own results are not reviewed by itself; but after cici咪 finishes,
         # there may be queued results to drain.
         if task.agent == "cici咪":
             await self.drain_if_idle()
             return
 
-        self._pending.append((task, result))
+        self._pending.append((task, result, retries))
         logger.info(
             f"📨 Result #{task.id} ({task.agent}) pending review, "
             f"queue={len(self._pending)}"
@@ -82,7 +86,7 @@ class ResultRelay:
                 self._reviewing = False
             # loop: if more results arrived during review, drain again
 
-    async def _spawn_cici_review(self, batch: list[tuple[Task, AgentResult]]):
+    async def _spawn_cici_review(self, batch: list[tuple[Task, AgentResult, int]]):
         """Spawn cici咪(--resume) with all batched results to review."""
         prompt = self._build_review_prompt(batch)
         now = datetime.now(timezone.utc).isoformat()
@@ -105,16 +109,18 @@ class ResultRelay:
         })
         logger.info(f"✅ cici咪 review done ({len(result.output)} chars)")
 
-    def _build_review_prompt(self, batch: list[tuple[Task, AgentResult]]) -> str:
+    def _build_review_prompt(self, batch: list[tuple[Task, AgentResult, int]]) -> str:
         """Construct the review prompt for cici咪 (results + MCP tool instructions)."""
         parts = [
             "你是 cici咪，TeamChat 的架构师。以下 agent 完成了任务，请逐一审核并决定下一步。",
             "",
         ]
-        for task, result in batch:
+        for task, result, retries in batch:
             status = "成功" if result.success else "失败"
             parts.append(f"## 任务 #{task.id}「{task.title}」(指派给 {task.agent})")
             parts.append(f"执行状态: {status} (exit_code={result.exit_code})")
+            if retries:
+                parts.append(f"（引擎已自动重试 {retries} 次后仍{'失败' if not result.success else '成功'}）")
             parts.append("执行输出:")
             parts.append(result.output[:MAX_OUTPUT_IN_PROMPT])
             parts.append("")
