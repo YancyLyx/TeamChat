@@ -42,6 +42,34 @@ class TestConfig:
         assert "--json" in CLI_TEMPLATES["codex"]
         assert "--json" in CLI_CONTINUE_TEMPLATES["codex"]
 
+    def test_codex_sandbox_flag_position(self):
+        """codex resume 子命令不接受 --sandbox（exec 级选项）→ 必须用 -c 覆盖 sandbox_mode。"""
+        from engine.config import (
+            AGENT_COCO, CLI_CONTINUE_TEMPLATES, CLI_TEMPLATES, Config,
+        )
+
+        # 冷启动：--sandbox 是 exec 级选项，位于 exec 之后、prompt 之前
+        cold = CLI_TEMPLATES["codex"]
+        assert cold[1] == "exec"
+        assert cold[2] == "--sandbox"
+        assert cold[3] == "workspace-write"
+
+        # continue(--last)：resume 子命令之后不得出现 --sandbox
+        cont = CLI_CONTINUE_TEMPLATES["codex"]
+        assert "--sandbox" not in cont
+        assert "resume" in cont and "--last" in cont
+        assert "-c" in cont and 'sandbox_mode="workspace-write"' in cont
+
+        # resume 指定 session：同样不得出现 --sandbox
+        config = Config(
+            repo_owner="test", repo_name="test", repo_url="https://github.com/test/test",
+        )
+        cmd = config.get_cli_command(AGENT_COCO, "hello", session_id="session-123")
+        assert cmd[:3] == ["codex", "exec", "resume"]
+        assert "--sandbox" not in cmd
+        assert "-c" in cmd and 'sandbox_mode="workspace-write"' in cmd
+        assert cmd[-1] == "hello"
+
     def test_load_config(self):
         config = load_config()
         assert config.repo_owner == "YancyLyx"
