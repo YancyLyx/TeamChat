@@ -12,7 +12,7 @@ import logging
 import sys
 from typing import Any
 
-from engine.task_planner import dag_summary, detect_cycles
+from engine.task_planner import dag_summary, detect_cycles, task_tree
 
 # Log to stderr (stdout is for JSON-RPC)
 logging.basicConfig(
@@ -54,21 +54,31 @@ def handle_create_task(args: dict) -> dict:
     task = tt.create(agent=agent, title=title, description=prompt, depends_on=depends_on)
     logger.info(f"📝 create_task: #{task.id} '{title}' → {agent} (deps={depends_on})")
 
-    # Phase 4.2: DAG 校验 — 若依赖出现循环，警告 cici咪（不阻塞创建，cici咪 修正）
-    warning = None
+    # Phase 4.2: DAG 校验 — 循环 + 孤儿依赖（不阻塞创建，cici咪 修正）
+    warnings = []
     cycles = detect_cycles(tt)
     if cycles:
-        warning = f"⚠️ 依赖存在循环: {cycles}，请用 update_task 修正 depends_on"
+        warnings.append(f"⚠️ 依赖存在循环: {cycles}，可用 update_task 修正 depends_on")
         logger.warning(f"create_task #{task.id} 导致循环: {cycles}")
+    missing = [d for d in (depends_on or []) if not tt.get(d)]
+    if missing:
+        warnings.append(f"⚠️ 依赖的任务不存在: {missing}")
 
     return {"task_id": task.id, "agent": agent, "title": title,
-            "status": "pending", "warning": warning}
+            "status": "pending", "warning": "; ".join(warnings) or None}
 
 
 def handle_dag_summary(args: dict) -> dict:
-    """DAG 概况：任务数、按状态分布、是否有循环依赖。"""
+    """DAG 概况：任务数、按状态分布、循环/孤儿/失败阻塞检测。"""
     tt = _get_task_table()
     return dag_summary(tt, teamchat_session_id=args.get("teamchat_session_id"))
+
+
+def handle_task_tree(args: dict) -> dict:
+    """以某任务为根的 DAG 子树（soso咪 review Bug 3: 兑现 prompt 的'任务树'）。"""
+    task_id = args.get("task_id", 0)
+    tt = _get_task_table()
+    return {"root": task_tree(tt, task_id)}
 
 
 def handle_update_task(args: dict) -> dict:
@@ -83,9 +93,14 @@ def handle_update_task(args: dict) -> dict:
     if not task:
         return {"error": f"Task #{task_id} not found"}
 
-    tt.update(task_id, status=status)
+    # soso咪 review Bug 2: 支持 depends_on 修正（cici咪 修复循环依赖的途径）
+    kwargs = {"status": status}
+    if "depends_on" in args:
+        kwargs["depends_on"] = args["depends_on"]
+    tt.update(task_id, **kwargs)
     logger.info(f"🔄 update_task: #{task_id} → {status}")
-    return {"task_id": task_id, "status": status}
+    return {"task_id": task_id, "status": status,
+            "depends_on": args.get("depends_on", task.depends_on)}
 
 
 def handle_list_tasks(args: dict) -> dict:
@@ -130,6 +145,11 @@ TOOLS = {
             "properties": {
                 "task_id": {"type": "integer"},
                 "status": {"type": "string", "enum": ["pending", "running", "done", "failed"]},
+                "depends_on": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Optional: fix the task's dependencies (e.g. break a cycle)",
+                },
             },
             "required": ["task_id", "status"],
         },
@@ -160,6 +180,16 @@ TOOLS = {
             "properties": {
                 "teamchat_session_id": {"type": "integer"},
             },
+        },
+    },
+    "task_tree": {
+        "handler": handle_task_tree,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "integer"},
+            },
+            "required": ["task_id"],
         },
     },
 }
@@ -279,9 +309,11 @@ def handle_request(request: dict):
 
 TOOL_DESCRIPTIONS = {
     "create_task": "Create a new task assigned to an agent. The prompt field contains the full instructions for the agent.",
-    "update_task": "Update a task's status (pending/running/done/failed).",
+    "update_task": "Update a task's status (pending/running/done/failed) and optionally fix its depends_on dependencies.",
     "list_tasks": "List tasks, optionally filtered by status.",
     "get_task": "Get a single task by ID.",
+    "dag_summary": "DAG 概况：任务数、状态分布、循环依赖、孤儿依赖（依赖不存在）、被失败/废弃任务阻塞的 pending 任务。",
+    "task_tree": "以某任务为根的任务树（该任务的全部后代依赖）。",
 }
 
 

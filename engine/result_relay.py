@@ -89,6 +89,7 @@ class ResultRelay:
     async def _spawn_cici_review(self, batch: list[tuple[Task, AgentResult, int]]):
         """Spawn cici咪(--resume) with all batched results to review."""
         prompt = self._build_review_prompt(batch)
+        target_session = batch[0][0].teamchat_session_id
         now = datetime.now(timezone.utc).isoformat()
         await self._broadcast({
             "type": "system_message",
@@ -97,10 +98,22 @@ class ResultRelay:
         })
         logger.info(f"🔍 Spawning cici咪 to review {len(batch)} result(s)")
         review_task = AgentTask(prompt=prompt, timeout_seconds=REVIEW_TIMEOUT)
+        # Tasks created via MCP default to teamchat_session_id=1 (MCP is stateless);
+        # track what exists so we can fix the session of review-created tasks below.
+        tasks_before = {t.id for t in self.task_table.list_tasks()}
         result = await spawn_with_session(
             AGENT_CICI, review_task, self.runner, self.session_store,
-            batch[0][0].teamchat_session_id,
+            target_session,
         )
+        # Fix teamchat_session_id on tasks cici咪 just created during review
+        # (完善点③ — same problem chat.py already fixes for the /api/chat path).
+        for t in self.task_table.list_tasks():
+            if t.id not in tasks_before and t.teamchat_session_id != target_session:
+                self.task_table.update(t.id, teamchat_session_id=target_session)
+                logger.info(
+                    f"🔧 Fixed review-created task #{t.id} session "
+                    f"{t.teamchat_session_id} → {target_session}"
+                )
         await self._broadcast({
             "type": "chat_message",
             "data": {"kind": "agent_reply", "agent": "cici咪",
@@ -130,7 +143,13 @@ class ResultRelay:
             f"2. 调用 mcp__teamchat__update_task(task_id=<id>, status=\"done\" 或 \"failed\") 标记结果",
             "3. 如果需要后续步骤（如 review、测试、合并），调用 mcp__teamchat__create_task(agent=<coco咪/soso咪/cici咪>, title=<标题>, prompt=<详细指令>, depends_on=[<已完成任务id>])",
             "",
-            "可用 MCP 工具: mcp__teamchat__update_task, mcp__teamchat__create_task, mcp__teamchat__list_tasks, mcp__teamchat__get_task",
+            "## 发现问题时（重要）:",
+            "- 如果审核发现实现有 bug 或需要修改 → **追加修复任务**，不要回退：",
+            "  创建新任务(agent=原实现者, title=修复XX, prompt=含具体问题描述, depends_on=[当前任务id])",
+            "- 修复任务完成后，如需要，再创建复查任务（depends_on=[修复任务id]）",
+            "- 保持 DAG 无环：禁止让任务依赖自己的后代",
+            "",
+            "可用 MCP 工具: mcp__teamchat__update_task, mcp__teamchat__create_task, mcp__teamchat__list_tasks, mcp__teamchat__get_task, mcp__teamchat__dag_summary, mcp__teamchat__task_tree",
             "注意：你只做审核和任务编排，不要自己执行开发任务。",
         ])
         return "\n".join(parts)

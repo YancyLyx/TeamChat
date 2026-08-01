@@ -108,8 +108,9 @@ DAG 建模（每个需求都是一棵任务树，只是节点数不同）:
   * Task B: Review/测试 → soso咪 (depends_on=[A的ID])
   * Task C: 合并/收尾 → cici咪 (depends_on=[B的ID])
 - 依赖声明: 子任务 depends_on=[父任务ID]，Engine 会等父任务 done 后自动派发
-- 禁止循环依赖（A 依赖 B 且 B 依赖 A）— Engine 检测到会警告，请修正
-- 可用 mcp__teamchat__dag_summary 查看当前任务树和是否有循环
+- 禁止循环依赖（A 依赖 B 且 B 依赖 A）— Engine 检测到会警告，用 update_task 修正 depends_on
+- mcp__teamchat__dag_summary 查看任务概况（含循环/孤儿/失败阻塞检测）
+- mcp__teamchat__task_tree(task_id=根任务) 查看某任务的后代任务树
 
 注意:
 - 创建任务后 Engine 会自动派发给对应 agent

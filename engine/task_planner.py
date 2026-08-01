@@ -19,13 +19,14 @@ logger = logging.getLogger(__name__)
 _WHITE, _GRAY, _BLACK = 0, 1, 2  # DFS 三色标记
 
 
-def detect_cycles(task_table: TaskTable) -> list[list[int]]:
-    """Detect dependency cycles in the task DAG.
+def detect_cycles(task_table: TaskTable,
+                  teamchat_session_id: int | None = None) -> list[list[int]]:
+    """Detect dependency cycles in the task DAG (optionally scoped to a session).
 
     Returns a list of cycles, each a list of task IDs, e.g. [[5, 6, 5]].
     Empty list = the DAG is acyclic.
     """
-    tasks = task_table.list_tasks()
+    tasks = task_table.list_tasks(teamchat_session_id=teamchat_session_id)
     graph: dict[int, list[int]] = {t.id: list(t.depends_on) for t in tasks}
     color: dict[int, int] = {tid: _WHITE for tid in graph}
     cycles: list[list[int]] = []
@@ -77,8 +78,40 @@ def task_tree(task_table: TaskTable, root_id: int, _depth: int = 0) -> dict:
     }
 
 
+def orphan_deps(task_table: TaskTable,
+                teamchat_session_id: int | None = None) -> list[dict]:
+    """Tasks whose depends_on references non-existent task IDs — silently blocked."""
+    tasks = task_table.list_tasks(teamchat_session_id=teamchat_session_id)
+    known = {t.id for t in tasks}
+    orphans = []
+    for t in tasks:
+        missing = [d for d in t.depends_on if d not in known]
+        if missing:
+            orphans.append({"task_id": t.id, "title": t.title, "missing_deps": missing})
+    return orphans
+
+
+def blocked_by_failure(task_table: TaskTable,
+                       teamchat_session_id: int | None = None) -> list[dict]:
+    """Pending tasks whose dependencies are failed/abandoned — would block forever."""
+    tasks = task_table.list_tasks(teamchat_session_id=teamchat_session_id)
+    statuses = {t.id: t.status for t in tasks}
+    result = []
+    for t in tasks:
+        if t.status != "pending":
+            continue
+        bad = [d for d in t.depends_on if statuses.get(d) in ("failed", "abandoned")]
+        if bad:
+            result.append({"task_id": t.id, "title": t.title, "blocked_by": bad})
+    return result
+
+
 def dag_summary(task_table: TaskTable, teamchat_session_id: int | None = None) -> dict:
-    """High-level summary of the task DAG for dashboard/debugging."""
+    """High-level summary of the task DAG for dashboard/debugging.
+
+    All counts AND cycle/orphan/blocked checks are scoped to the same session
+    (soso咪 review: session isolation was inconsistent before).
+    """
     tasks = task_table.list_tasks(teamchat_session_id=teamchat_session_id)
     by_status: dict[str, int] = {}
     for t in tasks:
@@ -86,5 +119,7 @@ def dag_summary(task_table: TaskTable, teamchat_session_id: int | None = None) -
     return {
         "total": len(tasks),
         "by_status": by_status,
-        "cycles": detect_cycles(task_table),
+        "cycles": detect_cycles(task_table, teamchat_session_id=teamchat_session_id),
+        "orphan_deps": orphan_deps(task_table, teamchat_session_id=teamchat_session_id),
+        "blocked_by_failure": blocked_by_failure(task_table, teamchat_session_id=teamchat_session_id),
     }

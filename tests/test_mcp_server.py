@@ -44,7 +44,7 @@ class TestMcpProcessRequest:
     def test_tools_list_returns_all_tools(self):
         resp = mcp.process_request({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
         names = {t["name"] for t in resp["result"]["tools"]}
-        assert names == {"create_task", "update_task", "list_tasks", "get_task", "dag_summary"}
+        assert names == {"create_task", "update_task", "list_tasks", "get_task", "dag_summary", "task_tree"}
 
     def test_unknown_method_returns_error(self):
         resp = mcp.process_request({"jsonrpc": "2.0", "id": 9, "method": "nope", "params": {}})
@@ -114,6 +114,77 @@ class TestMcpToolHandlers:
         assert payload["status"] == "done"
         assert task_table.get(task.id).status == "done"
 
+    def test_update_task_can_fix_depends_on(self, task_table: TaskTable):
+        """soso咪 Bug 2: cici咪 must be able to break a cycle via update_task."""
+        a = task_table.create("coco咪", "A")
+        b = task_table.create("soso咪", "B", depends_on=[a.id])
+        task_table.update(a.id, depends_on=[b.id])  # A↔B cycle
+
+        # cici咪 fixes it: A no longer depends on B
+        resp = mcp.process_request({
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "tools/call",
+            "params": {
+                "name": "update_task",
+                "arguments": {"task_id": a.id, "status": "pending", "depends_on": []},
+            },
+        })
+        payload = json.loads(resp["result"]["content"][0]["text"])
+        assert payload["depends_on"] == []
+        assert task_table.get(a.id).depends_on == []
+        # Cycle resolved
+        from engine.task_planner import detect_cycles
+        assert detect_cycles(task_table) == []
+
+    def test_create_task_warns_on_cycle(self, task_table: TaskTable):
+        """soso咪 缺口: create_task 触发循环时返回 warning."""
+        a = task_table.create("coco咪", "A")
+        b = task_table.create("soso咪", "B", depends_on=[a.id])
+        task_table.update(a.id, depends_on=[b.id])  # already cyclic
+
+        resp = mcp.process_request({
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "tools/call",
+            "params": {
+                "name": "create_task",
+                "arguments": {"agent": "coco咪", "title": "C", "prompt": "x",
+                              "depends_on": [b.id]},
+            },
+        })
+        payload = json.loads(resp["result"]["content"][0]["text"])
+        assert payload["warning"] and "循环" in payload["warning"]
+
+    def test_create_task_warns_on_orphan_dep(self, task_table: TaskTable):
+        resp = mcp.process_request({
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "tools/call",
+            "params": {
+                "name": "create_task",
+                "arguments": {"agent": "coco咪", "title": "C", "prompt": "x",
+                              "depends_on": [999]},
+            },
+        })
+        payload = json.loads(resp["result"]["content"][0]["text"])
+        assert payload["warning"] and "不存在" in payload["warning"]
+
+    def test_task_tree_tool(self, task_table: TaskTable):
+        """soso咪 Bug 3: task_tree 已暴露为 MCP 工具."""
+        a = task_table.create("coco咪", "A")
+        b = task_table.create("soso咪", "B", depends_on=[a.id])
+        resp = mcp.process_request({
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "tools/call",
+            "params": {"name": "task_tree", "arguments": {"task_id": a.id}},
+        })
+        payload = json.loads(resp["result"]["content"][0]["text"])
+        root = payload["root"]
+        assert root["id"] == a.id
+        assert root["children"][0]["id"] == b.id
+
     def test_list_tasks_filter(self, task_table: TaskTable):
         task_table.create("cici咪", "A")
         done = task_table.create("coco咪", "B")
@@ -145,5 +216,5 @@ class TestMcpStdioSubprocess:
         line = proc.stdout.strip().splitlines()[-1]
         data = json.loads(line)
         assert data["id"] == 1
-        assert len(data["result"]["tools"]) == 5
+        assert len(data["result"]["tools"]) == 6
         assert proc.stderr  # MCP logs go to stderr
