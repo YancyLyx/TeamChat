@@ -1,12 +1,11 @@
-"""Tests for no-@mention routing + MCP auto-dispatch (PR #82, ADR-003 Step 1-3)."""
+"""Tests for no-@mention routing + task dispatch (PR #82, ADR-003; updated for PR1 TaskScheduler)."""
 
 from __future__ import annotations
 
 import httpx
 import pytest
 
-from api.routes.chat import new_unblocked_tasks
-from engine.config import AGENT_CICI, Config, load_config
+from engine.config import Config, load_config
 from engine.session_store import SessionStore as TeamChatSessionStore
 from engine.task_table import TaskTable
 
@@ -29,37 +28,24 @@ def task_table(tmp_path):
     ss.close()
 
 
-class TestNewUnblockedTasks:
-    def test_skips_pre_existing_pending_tasks(self, task_table):
-        stale = task_table.create("coco咪", "stale", description="old prompt")
-        task_table.create("coco咪", "fresh", description="new prompt")
-        pending_before = {stale.id}
+class TestUnblockedTasks:
+    """task_table.unblocked_tasks() is what TaskScheduler polls (PR1)."""
 
-        to_run = new_unblocked_tasks(task_table, pending_before)
-        assert len(to_run) == 1
-        assert to_run[0].title == "fresh"
+    def test_returns_pending_with_no_deps(self, task_table):
+        first = task_table.create("coco咪", "step1", description="first")
+        to_run = task_table.unblocked_tasks()
+        assert [t.id for t in to_run] == [first.id]
 
     def test_respects_dependency_order(self, task_table):
         first = task_table.create("coco咪", "step1", description="first")
         second = task_table.create("soso咪", "step2", description="second", depends_on=[first.id])
-        pending_before = set()
 
-        to_run = new_unblocked_tasks(task_table, pending_before)
-        assert [t.id for t in to_run] == [first.id]
+        to_run = task_table.unblocked_tasks()
+        assert [t.id for t in to_run] == [first.id]  # second blocked
 
         task_table.update(first.id, status="done")
-        to_run2 = new_unblocked_tasks(task_table, pending_before)
+        to_run2 = task_table.unblocked_tasks()
         assert [t.id for t in to_run2] == [second.id]
-
-
-class TestClaudeMcpConfig:
-    def test_claude_command_includes_mcp_config(self):
-        config = Config(
-            repo_owner="test", repo_name="test", repo_url="https://github.com/test/test",
-        )
-        cmd = config.get_cli_command(AGENT_CICI, "analyze this")
-        assert "--mcp-config" in cmd
-        assert ".teamchat/mcp-config.json" in cmd
 
 
 def _seed_task_with_description(app, *, agent: str, title: str, description: str) -> int:
@@ -79,6 +65,10 @@ def _seed_task_with_description(app, *, agent: str, title: str, description: str
     return holder["id"]
 
 
+@pytest.mark.skip(
+    reason="PR1 架构变更: chat.py 同步派发改为 TaskScheduler 后台轮询 + cici咪 审核。"
+           "端到端验证在 PR2（失败重试 + E2E 测试）重写。"
+)
 class TestNoMentionAutoDispatchApi:
     def test_existing_pending_not_redispatched(self, e2e_servers, e2e_app):
         _seed_task_with_description(

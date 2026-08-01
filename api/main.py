@@ -43,7 +43,9 @@ from engine.bus import MessageBus
 from engine.task_table import create_task_table
 from engine.runtime import create_runtime
 from engine.orchestrator import Orchestrator
+from engine.result_relay import ResultRelay
 from engine.session_store import create_session_store
+from engine.task_scheduler import TaskScheduler
 
 from api.routes import agents, sessions, tasks, chat, teamchat_sessions, approval
 
@@ -135,9 +137,20 @@ async def lifespan(app: FastAPI):
         })
     bus.subscribe("all", on_bus_message)
 
+    # Task Scheduler — background loop that dispatches unblocked tasks (ADR-003 中枢模式)
+    result_relay = ResultRelay(runner, router_inst, session_store, task_table, ws_manager=manager)
+    scheduler = TaskScheduler(
+        runner, router_inst, task_table, session_store, store, result_relay, ws_manager=manager,
+    )
+    app.state.scheduler = scheduler
+    app.state.result_relay = result_relay
+    scheduler_task = asyncio.create_task(scheduler.run())
+
     logger.info("TeamChat API ready")
     yield
 
+    scheduler.stop()
+    scheduler_task.cancel()
     await runtime.close()
     task_table.close()
     session_store.close()
