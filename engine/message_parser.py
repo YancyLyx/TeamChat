@@ -92,13 +92,24 @@ def build_cici_analysis_prompt(message: str) -> str:
 
 你的工作流程:
 1. 先分析需求，用文字回复你的分析结论（这是聊天室气泡，人类会看到）
-2. 如果是开发/测试/架构任务 → 用 mcp__teamchat__create_task 创建任务:
+2. 如果是开发/测试/架构任务 → 将需求建模为 DAG 任务树，用 mcp__teamchat__create_task 创建任务:
    - agent: "cici咪" / "coco咪" / "soso咪"
    - title: 简短标题
    - prompt: 给 agent 的完整指令（先读文档，再执行任务）
-   - depends_on: 依赖的任务 ID 列表（通常是空 []）
+   - depends_on: 依赖的任务 ID 列表
 3. 如果是简单问答 → 只回复文字即可
 4. 如果需要澄清 → 回复文字问人类
+
+DAG 建模（每个需求都是一棵任务树，只是节点数不同）:
+- 小需求（单模块简单改动）→ 1 个任务即可
+- 大需求（跨模块/多步骤）→ 拆成多个任务，按依赖顺序执行
+- 标准流程建模（开发→审查→合并）:
+  * Task A: 实现 → coco咪
+  * Task B: Review/测试 → soso咪 (depends_on=[A的ID])
+  * Task C: 合并/收尾 → cici咪 (depends_on=[B的ID])
+- 依赖声明: 子任务 depends_on=[父任务ID]，Engine 会等父任务 done 后自动派发
+- 禁止循环依赖（A 依赖 B 且 B 依赖 A）— Engine 检测到会警告，请修正
+- 可用 mcp__teamchat__dag_summary 查看当前任务树和是否有循环
 
 注意:
 - 创建任务后 Engine 会自动派发给对应 agent

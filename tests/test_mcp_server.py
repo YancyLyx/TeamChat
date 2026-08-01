@@ -41,10 +41,10 @@ class TestMcpProcessRequest:
         assert resp is not None
         assert resp["result"]["serverInfo"]["name"] == "teamchat"
 
-    def test_tools_list_returns_four_tools(self):
+    def test_tools_list_returns_all_tools(self):
         resp = mcp.process_request({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
         names = {t["name"] for t in resp["result"]["tools"]}
-        assert names == {"create_task", "update_task", "list_tasks", "get_task"}
+        assert names == {"create_task", "update_task", "list_tasks", "get_task", "dag_summary"}
 
     def test_unknown_method_returns_error(self):
         resp = mcp.process_request({"jsonrpc": "2.0", "id": 9, "method": "nope", "params": {}})
@@ -145,5 +145,5 @@ class TestMcpStdioSubprocess:
         line = proc.stdout.strip().splitlines()[-1]
         data = json.loads(line)
         assert data["id"] == 1
-        assert len(data["result"]["tools"]) == 4
+        assert len(data["result"]["tools"]) == 5
         assert proc.stderr  # MCP logs go to stderr

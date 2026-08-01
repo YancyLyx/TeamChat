@@ -12,6 +12,8 @@ import logging
 import sys
 from typing import Any
 
+from engine.task_planner import dag_summary, detect_cycles
+
 # Log to stderr (stdout is for JSON-RPC)
 logging.basicConfig(
     level=logging.INFO,
@@ -51,7 +53,22 @@ def handle_create_task(args: dict) -> dict:
     tt = _get_task_table()
     task = tt.create(agent=agent, title=title, description=prompt, depends_on=depends_on)
     logger.info(f"📝 create_task: #{task.id} '{title}' → {agent} (deps={depends_on})")
-    return {"task_id": task.id, "agent": agent, "title": title, "status": "pending"}
+
+    # Phase 4.2: DAG 校验 — 若依赖出现循环，警告 cici咪（不阻塞创建，cici咪 修正）
+    warning = None
+    cycles = detect_cycles(tt)
+    if cycles:
+        warning = f"⚠️ 依赖存在循环: {cycles}，请用 update_task 修正 depends_on"
+        logger.warning(f"create_task #{task.id} 导致循环: {cycles}")
+
+    return {"task_id": task.id, "agent": agent, "title": title,
+            "status": "pending", "warning": warning}
+
+
+def handle_dag_summary(args: dict) -> dict:
+    """DAG 概况：任务数、按状态分布、是否有循环依赖。"""
+    tt = _get_task_table()
+    return dag_summary(tt, teamchat_session_id=args.get("teamchat_session_id"))
 
 
 def handle_update_task(args: dict) -> dict:
@@ -134,6 +151,15 @@ TOOLS = {
                 "task_id": {"type": "integer"},
             },
             "required": ["task_id"],
+        },
+    },
+    "dag_summary": {
+        "handler": handle_dag_summary,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "teamchat_session_id": {"type": "integer"},
+            },
         },
     },
 }
