@@ -68,7 +68,8 @@ CLI_TEMPLATES: dict[str, list[str]] = {
 # Templates with --continue / --resume for session context
 CLI_CONTINUE_TEMPLATES: dict[str, list[str]] = {
     "claude": ["claude", "--print", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio", "--allowedTools", "mcp__teamchat__*", "--continue", "{prompt}"],
-    "codex": ["codex", "exec", "resume", "--last", "--sandbox", "workspace-write", "--json", "{prompt}"],
+    # codex resume 子命令不接受 --sandbox（exec 级选项）→ 用 -c 覆盖 sandbox_mode
+    "codex": ["codex", "exec", "resume", "--last", "-c", 'sandbox_mode="workspace-write"', "--json", "{prompt}"],
     "cursor": ["agent", "--print", "--output-format", "stream-json", "--continue", "{prompt}"],
 }
 
@@ -125,8 +126,9 @@ class Config:
                         "--allowedTools", "mcp__teamchat__*",
                         "--resume", session_id, prompt]
             if agent.cli == "codex":
+                # resume 子命令不支持 --sandbox 位置参数 → 用 -c 覆盖 sandbox_mode
                 return [cli_path, "exec", "resume", session_id,
-                        "--sandbox", "workspace-write", "--json", prompt]
+                        "-c", 'sandbox_mode="workspace-write"', "--json", prompt]
             if agent.cli == "cursor":
                 return [cli_path, "--print", "--output-format", "stream-json",
                         f"--resume={session_id}", prompt]

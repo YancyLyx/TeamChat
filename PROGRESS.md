@@ -44,6 +44,7 @@ Phase: ADR-005 Phase 4.0 **端到端验证通过**（2026-08-01 本地）。协�
 | 08-01 | PR #94: Task Scheduler + Result Relay 协作闭环（已合并） | #94 |
 | 08-01 | PR #95: 失败自动重试（已 review 通过，GitHub 暂停未合并，**已本地合并到 main**） | #95 |
 | 08-01 | **端到端验证通过**（session 2 闭环验证）：任务 #3 soso咪 完整闭环 done；发现并修复 MCP 权限（--allowedTools） | 本地 |
+| 08-01 | codex resume --sandbox 参数位置修复（引擎 #12：resume/continue 路径改 `-c sandbox_mode="workspace-write"`，冒烟验证 ✅，待 soso咪 review） | 本地 |
 | 08-01 | **/api/chat 链路验证通过**：发消息→分析→create_task→session 修正→派发→执行→回流→审核→done（#4 #5）；发现并修复 MCP create_task session 硬编码 1 | 本地 |
 | 07-31 | PR #92: mdRender 重复声明修复（已合并） | #92 |
 | 07-31 | PR #80: 关闭（已过时） | - |
@@ -66,7 +67,8 @@ Phase: ADR-005 Phase 4.0 **端到端验证通过**（2026-08-01 本地）。协�
 | runner 备注: strip 兄弟 agent 的 TEAMCHAT_*_TOKEN | cici咪 | 中 |
 | 数据库优化: agent_calls 大文本外置（prompt/output 存文件）+ 历史归档（阈值 ~10 万行触发，现无需急） | cici咪 | 低 |
 | chat.py is_busy 排队路径测试（@agent 排队/无@mention 排队/greeting 跳过） | cici咪 | 中 |
-| **codex 写文件权限**（sandbox 拒绝 apply_patch → 写文档类任务失败；需配 codex 写权限或任务避免写文件） | cici咪 | 高 |
+| ~~codex 写文件权限~~ ✅ 已修复（#12，代码已改+冒烟验证，待 review 合并） | cici咪 | - |
+| 测试批跑顺序污染：15 失败（task_scheduler/claude_approval_stream/unicode_api；单测通过、批跑失败），待排查 | soso咪 | 中 |
 | Tasks 看板（前端，ADR-003 §8.2 [📋 Tasks] tab 待实现；数据已加载未渲染） | coco咪 | 中 |
 | Phase 4.1 GitHub Adapter（依赖 GitHub 恢复） | cici咪 | 低 |
 
@@ -80,7 +82,7 @@ Phase: ADR-005 Phase 4.0 **端到端验证通过**（2026-08-01 本地）。协�
 - 修复 2：MCP create_task 任务 teamchat_session_id 硬编码 1 → chat.py 分析后修正为当前 session
 - Phase 4.2 两轮完善：soso咪 审查通过（92 passed）；修复其建议的 ①无@mention mark_busy 竞态窗口 ②update_task 循环复检。测试计数口径：92（6 文件）vs 100（7 文件含 approval）
 - **Phase 4.2 闭环验证通过**（session 2 真实 CLI，2026-08-01）：DAG 建模/依赖顺序派发/排队/审核/追加修复任务(#11)/blocked_by_failure/update_task 改依赖解锁，全部验证 ✅
-- 验证发现环境问题：codex 会话文件系统只读（sandbox 拒写），写文档类任务失败 → 记待办
+- 验证发现环境问题：codex 会话文件系统只读（sandbox 拒写），写文档类任务失败 → 记待办；**已修复**（#12：resume 路径 `--sandbox` 位置错误 → 改 `-c sandbox_mode="workspace-write"`，2026-08-01 冒烟测试：写文件命令 exit 0 ✅）
 
 ## 铁律更新
 
