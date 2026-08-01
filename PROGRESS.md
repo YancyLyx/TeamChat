@@ -10,6 +10,19 @@ Phase: ADR-005 Phase 4.0 **端到端验证通过**（2026-08-01 本地）。协�
 
 **GitHub 账号 YancyLyx 被暂停**（2026-08-01 发现，用户申诉中）。所有 GitHub 操作不可用（push/merge/gh）。本地开发不受影响。
 
+## 📦 双远程仓库（2026-08-01 起）
+
+| 远程名 | 地址 | 用途 | 状态 |
+|---|---|---|---|
+| `origin` | `git@github.com:YancyLyx/TeamChat.git` | 主仓库（恢复后继续用） | ⏸ GitHub 暂停 |
+| `gitee` | `https://gitee.com/Lxunxun/TeamChat.git` | 备份/保险（GitHub 恢复前的版本管理） | ✅ 已同步 main + 46 分支 |
+
+**约定**：
+- push 时**显式指定远程**：`git push gitee main` / `git push origin main`（不用 `-u`，保持 origin 为默认上游）
+- 本地 main 最新状态（含 Phase 4.0 完整落地 + 验证修复 + Phase 4.1 Adapter）已在 gitee/main
+- GitHub 恢复后：`git push origin main` 无缝切回；不要 gitee 可 `git remote remove gitee`
+- 保险锚点：Phase 4.2 开始前建议 `git tag phase4-complete-20260801 && git push gitee phase4-complete-20260801`（回退用 `git reset --hard phase4-complete-20260801`）
+
 ### GitHub 恢复后的处理清单（用户告知恢复后执行）
 
 1. **push 本地 main**（含以下本地提交）：
