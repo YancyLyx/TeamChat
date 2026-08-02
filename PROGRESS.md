@@ -95,7 +95,10 @@ Phase: ADR-005 Phase 4.0 **端到端验证通过**（2026-08-01 本地）。协�
 
 **根因**：所有 agent（Engine spawn + 用户手动终端）共享同一工作目录和 git 仓库（ADR-005 曾规划 Git Worktree 隔离，降级为"未来考虑"）。
 
-**临时缓解**（已实施）：
-- Engine spawn 的 cici咪 任务 prompt 增加提示："不要创建 git 分支、不要 git commit/push（代码修改请直接改文件，由人工统一提交）"
+**第二次事故（2026-08-02）**：Engine spawn 的 cici咪 执行 `git checkout gitee/feature/cici-codex-resume-sandbox`（审查分支任务时），导致 detached HEAD + 工作区回退（Phase 4.5 修改看似丢失）。恢复：checkout main（引用未损）。已删除 gitee 远程分支防止再切。
 
-**长期方案**：Git Worktree 隔离（PROGRESS 待办，需并发需求时实施）
+**临时缓解**（已升级）：
+- prompt 明确**禁止执行任何 git 命令**（checkout/branch/reset/switch/commit/push 等）——共享工作区，git 操作由人工统一管理
+- 删除了可疑的 gitee 远程分支引用
+
+**长期方案**：Git Worktree 隔离（PROGRESS 待办，需并发需求时实施；或 Engine spawn agent 时限制 git 权限）

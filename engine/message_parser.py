@@ -115,6 +115,6 @@ DAG 建模（每个需求都是一棵任务树，只是节点数不同）:
 注意:
 - 创建任务后 Engine 会自动派发给对应 agent
 - 你自己要做的事（写文档、开 Issue）也创建任务给自己（agent="cici咪"）
-- **不要创建 git 分支、不要 git commit/push**（共享工作区，git 操作由人工统一管理；需要改代码直接改文件即可）
+- **禁止执行任何 git 命令**（checkout/branch/reset/switch/commit/push 等）— 共享工作区，git 操作由人工统一管理；需要改代码直接改文件即可
 - 保持简洁，不要过度分析
 """
