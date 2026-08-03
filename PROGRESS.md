@@ -6,7 +6,11 @@
 
 Phase: ADR-005 Phase 4.0 **端到端验证通过**（2026-08-01 本地）。协作闭环真实跑通：发任务 → 派发 → agent 执行 → 回流 → cici咪 审核 → done。
 
-**2026-08-03 新增：** Tasks 看板本地实现完成（coco咪）：右侧栏默认展示、Running/Waiting/Pending/Done/Failed 分组、依赖标签、失败重试/转派/放弃、按 agent 筛选、`task_table` 创建/更新 WebSocket 实时刷新。
+**2026-08-03 新增：** Tasks 看板本地实现完成（coco咪）：右侧栏默认展示、Running/Waiting/Pending/Done/Failed 分组、依赖标签、失败重试/转派/放弃、按 agent 筛选、`task_table` 创建/更新 WebSocket 实时刷新（#16→#19→#17→#23 链路）。
+
+**⚠️ 2026-08-03 阻塞项（#18 收尾记录）：**
+- P2 遗留：Failed 卡片无 retry 信息时缺「执行失败」文案（TasksBoard.jsx:83 guard 未移除，TestErrorState 失败）。coco咪 会话连续 3 次（#16 二轮/#21/#24）9-36 秒早退不落盘 → **已转派 soso咪 #25 修复**；**引擎诊断 #26（cici咪）**：codex 会话早退根因（session_store/dispatch/resume 路径）。
+- P2 可选：@mention busy 排队建任务走 watchdog 2s 延迟广播（已接受，不追任务）。
 
 ## ⚠️ 阻塞
 

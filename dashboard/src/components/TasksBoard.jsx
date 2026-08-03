@@ -80,12 +80,10 @@ function TaskCard({ task, byId, busy, onAction, reassignFor, reassignTarget, onS
 
           {failed && (
             <div className="mt-1.5 space-y-1">
-              {(task.retry_count > 0 || task.last_error) && (
-                <p className="text-[10px] text-red-600 break-words leading-snug">
-                  {task.retry_count > 0 ? `重试 ${task.retry_count} 次` : '执行失败'}
-                  {task.last_error ? `: ${task.last_error}` : ''}
-                </p>
-              )}
+              <p className="text-[10px] text-red-600 break-words leading-snug">
+                {task.retry_count > 0 ? `重试 ${task.retry_count} 次` : '执行失败'}
+                {task.last_error ? `: ${task.last_error}` : ''}
+              </p>
               <div className="flex flex-wrap gap-1.5">
                 {reassignFor === task.id ? (
                   <>

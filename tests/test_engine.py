@@ -468,6 +468,90 @@ class TestCliSessionExtract:
         assert "stream-json" in resume
 
 
+class TestCodexSessionRotation:
+    """#26 — codex threads bloat on every resume (observed ~6M input tokens →
+    plan-only replies). spawn_with_session must rotate the stored thread."""
+
+    async def test_rotation_resets_stored_id_and_cold_starts(self, tmp_path):
+        from unittest.mock import AsyncMock
+
+        from engine.config import AGENT_COCO, Config
+        from engine.dispatch import (
+            CODEX_SESSION_MAX_USES, _session_uses, spawn_with_session,
+        )
+        from engine.runner import AgentResult, AgentTask
+        from engine.session_store import SessionStore
+
+        config = Config(
+            repo_owner="t", repo_name="t", repo_url="https://t/t",
+            project_root=tmp_path,
+        )
+        ss = SessionStore(config)
+        ss.init()
+        # init() seeds hardcoded IDs for the default session — clear so the
+        # first spawn is a genuine cold start.
+        ss.reset_agent_session(1, "codex")
+
+        def make_result(sid: str) -> AgentResult:
+            r = AgentResult(
+                agent_name="coco咪", task_prompt="p", output="done",
+                exit_code=0, duration_ms=1, started_at="s", finished_at="f",
+            )
+            r.cli_session_id = sid
+            return r
+
+        runner = AsyncMock()
+        # 第 1 次冷启动捕获 thread-A；resume 至第 9 次（第 8 次 resume 触发轮换）；
+        # 第 10 次调用冷启动捕获 thread-B。
+        runner._run = AsyncMock(side_effect=[make_result("thread-A")] * 9 + [make_result("thread-B")])
+
+        _session_uses.clear()
+        task = AgentTask(prompt="t")
+        for _ in range(CODEX_SESSION_MAX_USES + 2):
+            await spawn_with_session(AGENT_COCO, task, runner, ss, 1)
+
+        # 前 9 次：第 1 次冷启动（无 session_id），其后 resume thread-A
+        for i, call in enumerate(runner._run.await_args_list[1:9], start=2):
+            assert call.kwargs["session_id"] == "thread-A", f"call {i} should resume thread-A"
+        # 轮换后：第 10 次调用冷启动（无 session_id）
+        assert runner._run.await_args_list[9].kwargs["session_id"] is None
+        # 存储最终指向新线程
+        assert ss.get_agent_session_id(1, "codex") == "thread-B"
+
+    async def test_claude_not_rotated(self, tmp_path):
+        from unittest.mock import AsyncMock
+
+        from engine.config import AGENT_CICI, Config
+        from engine.dispatch import _session_uses, spawn_with_session
+        from engine.runner import AgentResult, AgentTask
+        from engine.session_store import SessionStore
+
+        config = Config(
+            repo_owner="t", repo_name="t", repo_url="https://t/t",
+            project_root=tmp_path,
+        )
+        ss = SessionStore(config)
+        ss.init()
+        ss.reset_agent_session(1, "claude")
+
+        def make_result(sid: str) -> AgentResult:
+            r = AgentResult(
+                agent_name="cici咪", task_prompt="p", output="done",
+                exit_code=0, duration_ms=1, started_at="s", finished_at="f",
+            )
+            r.cli_session_id = sid
+            return r
+
+        runner = AsyncMock()
+        runner._run = AsyncMock(side_effect=[make_result("claude-A")] * 5)
+        _session_uses.clear()
+        task = AgentTask(prompt="t")
+        for _ in range(5):
+            await spawn_with_session(AGENT_CICI, task, runner, ss, 1)
+        # 仅 codex 轮换：claude 即使多次 resume 也保留存储
+        assert ss.get_agent_session_id(1, "claude") == "claude-A"
+
+
 class TestTokenAndToolStats:
     """PR #54 — token_stats / tool_stats helpers."""
 

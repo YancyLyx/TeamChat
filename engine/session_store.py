@@ -155,6 +155,11 @@ class SessionStore:
         ).fetchone()
         return row[0] if row and row[0] else ""
 
+    def reset_agent_session(self, teamchat_session_id: int, agent_cli: str):
+        """Clear the stored CLI session ID for an agent — next spawn cold-starts
+        and captures a fresh thread (used for session rotation, see dispatch.py)."""
+        self.set_agent_session_id(teamchat_session_id, agent_cli, "")
+
     def set_agent_session_id(self, teamchat_session_id: int, agent_cli: str, cli_session_id: str):
         """Store the CLI session ID captured from a cold start."""
         col_map = {"claude": "claude_id", "codex": "codex_id", "cursor": "cursor_id"}
