@@ -84,3 +84,17 @@ def test_retry_count_and_last_error_fields(task_table: TaskTable):
     d = updated.to_dict()
     assert d["retry_count"] == 2
     assert d["last_error"] == "network timeout"
+
+
+def test_reset_interrupted_running_to_pending(task_table: TaskTable):
+    """重启恢复: running 任务重置为 pending（session resume 可续做）。"""
+    t1 = task_table.create("coco咪", "A")
+    t2 = task_table.create("soso咪", "B")
+    task_table.update(t1.id, status="running")
+    task_table.update(t2.id, status="done")
+
+    recovered = task_table.reset_interrupted()
+
+    assert recovered == 1
+    assert task_table.get(t1.id).status == "pending"
+    assert task_table.get(t2.id).status == "done"  # 非 running 不动

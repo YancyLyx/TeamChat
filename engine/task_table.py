@@ -227,6 +227,18 @@ class TaskTable:
         all_tasks = self.list_tasks()
         return [t for t in all_tasks if task_id in t.depends_on]
 
+    def reset_interrupted(self) -> int:
+        """Restart recovery: reset running tasks back to pending.
+
+        Agent CLI sessions (--resume) keep their context, so re-dispatching
+        lets the agent check progress and continue rather than start over.
+        """
+        cur = self.conn.execute(
+            "UPDATE task_table SET status='pending' WHERE status='running'"
+        )
+        self.conn.commit()
+        return cur.rowcount
+
     # -- stats --
 
     def stats(self) -> dict:

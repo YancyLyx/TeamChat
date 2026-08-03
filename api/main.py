@@ -101,6 +101,12 @@ async def lifespan(app: FastAPI):
     # Discover existing sessions
     runtime.discover_sessions()
 
+    # Restart recovery: reset interrupted running tasks to pending so the
+    # TaskScheduler re-dispatches them (agent --resume keeps context → continue).
+    recovered = task_table.reset_interrupted()
+    if recovered:
+        logger.info(f"🔄 恢复 {recovered} 个中断任务（running → pending，将自动重派）")
+
     app.state.config = config
     app.state.store = store
     app.state.runner = runner
