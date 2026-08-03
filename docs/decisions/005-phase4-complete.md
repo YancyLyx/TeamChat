@@ -523,6 +523,38 @@ TaskScheduler 派发 soso咪 执行任务 X（running）
 
 **实现者**：coco咪（前端职责）。用户发消息 → cici咪 分析 → 派发 coco咪。
 
+**面板改进（2026-08-03，用户要求，已实现）**：
+- **Done 倒序**（最新在前）+ 默认显示 5 个 + "▼ 展开全部"折叠
+- **abandoned 独立分组**（"已放弃"，默认折叠）——修复"点放弃没反应"感知（之前 abandoned 与 failed 同组，视觉无变化；数据库实际已更新）
+- Failed / 已放弃 也倒序（最新问题最显眼）
+- 转派后的原任务标记 abandoned（如 #21 → #25），从 Failed 主列表移除
+
+**失败按钮流程（重试/转派/放弃）— 透明度说明**：
+
+```
+用户点击（前端 TasksBoard）:
+  - 重试   → PATCH /api/tasks/table/{id} body={status:'pending', retry_count:0, last_error:''}
+  - 转派   → PATCH ... body={status:'pending', agent:<目标咪>, retry_count:0, last_error:''}
+  - 放弃   → PATCH ... body={status:'abandoned'}
+    ↓
+后端（api/routes/tasks.py）: tt.update → 广播 task_table_updated（WS）→ 返回 updated
+    ↓
+前端: setTasks 本地更新（任务移到 Pending/Waiting 或"已放弃"组）+ WS 同步
+    ↓
+任务变 pending → TaskScheduler ≤2s 轮询 → unblocked → 派发 agent
+    → task_started 事件（聊天室显示"⚡ X 开始执行 #N"）
+    → agent 执行 → 完成 → ResultRelay → cici咪 审核
+    （转派时派发新 agent，用原 prompt）
+```
+
+**按钮定位**：**用户兜底/手动干预**（与 cici咪 审核三选项双保险）。
+- 自动链路：失败 → 引擎重试 3 次 → cici咪 审核三选项（MCP update_task）
+- 手动兜底场景：
+  a. cici咪 审核未触发/卡住（任务卡 failed 无人管）
+  b. 用户主动干预（知道问题，不等 cici咪）
+  c. 不同意 cici咪 的判定
+- 必要性：自动链路正常时用不到；链路异常时是救命稻草（本次 #24 审核未触发即属此场景）
+
 ---
 
 ### Phase 4.3: Agent Bids（认领机制）
