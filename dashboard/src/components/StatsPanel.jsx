@@ -17,7 +17,7 @@ function Bar({ pct }) {
   )
 }
 
-export default function StatsPanel({ agentMetrics = {}, l3Stats = null }) {
+export default function StatsPanel({ agentMetrics = {}, l3Stats = null, sessionId = null }) {
   const [subTab, setSubTab] = useState('L1')
   const [engine, setEngine] = useState(null)
   const [taskStats, setTaskStats] = useState(null)
@@ -34,7 +34,7 @@ export default function StatsPanel({ agentMetrics = {}, l3Stats = null }) {
     setFeaturesLoading(true)
     ;(async () => {
       try {
-        const res = await fetch(`${API_BASE}/tasks/features?teamchat_session_id=1`)
+        const res = await fetch(`${API_BASE}/tasks/features?teamchat_session_id=${sessionId ?? 1}`)
         if (!cancelled && res.ok) {
           const data = await res.json()
           setFeatures(data.features || [])
@@ -222,7 +222,8 @@ export default function StatsPanel({ agentMetrics = {}, l3Stats = null }) {
         </div>
       )}
 
-      {/* Weekly Summary */}
+      {/* Weekly Summary — 只在 L1 显示（用户要求，L2/L3 不重复） */}
+      {subTab === 'L1' && (
       <div className="border-t border-gray-100 pt-3">
         <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Weekly Summary</h4>
         <div className="grid grid-cols-2 gap-2 text-xs">
@@ -244,6 +245,7 @@ export default function StatsPanel({ agentMetrics = {}, l3Stats = null }) {
           </div>
         </div>
       </div>
+      )}
     </div>
   )
 }

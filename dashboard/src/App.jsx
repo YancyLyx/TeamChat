@@ -40,7 +40,7 @@ export default function App() {
       const [ar, sr, str, tr, er] = await Promise.all([
         fetch(`${API_BASE}/agents`),
         fetch(`${API_BASE}/sessions?limit=30`),
-        fetch(`${API_BASE}/stats`),
+        fetch(`${API_BASE}/stats?teamchat_session_id=${activeSessionId ?? 1}`),
         fetch(`${API_BASE}/tasks/table`),
         fetch(`${API_BASE}/engine`),
       ])
@@ -69,7 +69,7 @@ export default function App() {
       setTasks(tableRows)
     } catch (err) { setError(err.message) }
     finally { setLoading(false) }
-  }, [])
+  }, [activeSessionId])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -223,7 +223,7 @@ export default function App() {
                 <button onClick={() => setRightTab('stats')} className={`flex-1 text-xs py-2 font-medium transition-colors ${rightTab === 'stats' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'}`}>Stats</button>
                 <button onClick={() => setRightTab('live')} className={`flex-1 text-xs py-2 font-medium transition-colors ${rightTab === 'live' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'}`}>Live</button>
               </div>
-              {rightTab === 'tasks' ? <TasksBoard tasks={tasks} sessionId={activeSessionId} onUpdateTask={handleUpdateTask} /> : rightTab === 'stats' ? <StatsPanel agentMetrics={agentMetrics} l3Stats={l3Stats} /> : <LivePanel recentEvents={liveEvents} />}
+              {rightTab === 'tasks' ? <TasksBoard tasks={tasks} sessionId={activeSessionId} onUpdateTask={handleUpdateTask} /> : rightTab === 'stats' ? <StatsPanel agentMetrics={agentMetrics} l3Stats={l3Stats} sessionId={activeSessionId} /> : <LivePanel recentEvents={liveEvents} />}
             </>
           )}
         </aside>
