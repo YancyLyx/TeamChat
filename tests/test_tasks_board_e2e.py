@@ -31,34 +31,52 @@ class TestTasksBoard:
     def test_shows_status_groups_and_dependency_waiting(
         self, page: Page, e2e_servers, e2e_app
     ):
-        blocker = seed_task_table(
-            e2e_app, agent="coco咪", title=f"BLOCK_{uuid.uuid4().hex[:8]}", status="failed"
+        blocker_title = f"BLOCK_{uuid.uuid4().hex[:8]}"
+        blocker_id = seed_task_table(
+            e2e_app, agent="coco咪", title=blocker_title, status="failed"
         )
-        waiting = seed_task_table(
+        waiting_title = f"WAIT_{uuid.uuid4().hex[:8]}"
+        seed_task_table(
             e2e_app,
             agent="soso咪",
-            title=f"WAIT_{uuid.uuid4().hex[:8]}",
+            title=waiting_title,
             status="pending",
-            depends_on=[blocker],
+            depends_on=[blocker_id],
         )
-        running = seed_task_table(
-            e2e_app, agent="coco咪", title=f"RUN_{uuid.uuid4().hex[:8]}", status="running"
+        running_title = f"RUN_{uuid.uuid4().hex[:8]}"
+        seed_task_table(
+            e2e_app, agent="coco咪", title=running_title, status="running"
         )
-        done = seed_task_table(
-            e2e_app, agent="cici咪", title=f"DONE_{uuid.uuid4().hex[:8]}", status="done"
+        done_title = f"DONE_{uuid.uuid4().hex[:8]}"
+        seed_task_table(
+            e2e_app, agent="cici咪", title=done_title, status="done"
         )
 
         _goto(page, e2e_servers["dashboard_url"])
         _wait_connected(page)
 
         tasks_panel = page.locator("aside").last
-        expect(tasks_panel.get_by_test_id("tasks-group-running").get_by_text(running)).to_be_visible()
-        expect(tasks_panel.get_by_test_id("tasks-group-waiting").get_by_text(waiting)).to_be_visible()
+        expect(tasks_panel.get_by_test_id("tasks-group-running")).to_be_visible()
         expect(
-            tasks_panel.get_by_test_id("tasks-group-waiting").get_by_text(f"等 #{blocker} 完成")
+            tasks_panel.get_by_test_id("tasks-group-running").get_by_text(running_title)
         ).to_be_visible()
-        expect(tasks_panel.get_by_test_id("tasks-group-done").get_by_text(done)).to_be_visible()
-        expect(tasks_panel.get_by_test_id("tasks-group-failed").get_by_text(blocker)).to_be_visible()
+        expect(tasks_panel.get_by_test_id("tasks-group-waiting")).to_be_visible()
+        expect(
+            tasks_panel.get_by_test_id("tasks-group-waiting").get_by_text(waiting_title)
+        ).to_be_visible()
+        expect(
+            tasks_panel.get_by_test_id("tasks-group-waiting").get_by_text(
+                f"等 #{blocker_id} 完成"
+            )
+        ).to_be_visible()
+        expect(tasks_panel.get_by_test_id("tasks-group-done")).to_be_visible()
+        expect(
+            tasks_panel.get_by_test_id("tasks-group-done").get_by_text(done_title)
+        ).to_be_visible()
+        expect(tasks_panel.get_by_test_id("tasks-group-failed")).to_be_visible()
+        expect(
+            tasks_panel.get_by_test_id("tasks-group-failed").get_by_text(blocker_title)
+        ).to_be_visible()
 
     def test_agent_filter_hides_other_agents(self, page: Page, e2e_servers, e2e_app):
         coco_marker = f"COCO_{uuid.uuid4().hex[:8]}"

@@ -272,6 +272,71 @@ class TestTaskScheduler:
         assert len(final_logs) == 1
 
 
+    async def test_watchdog_broadcasts_task_table_changes(self, task_table, mock_runner):
+        """Diff watchdog: broadcast task_table_updated for changed rows —
+        covers cross-process MCP create/update_task; first pass = baseline."""
+        ws_manager = AsyncMock()
+        scheduler = TaskScheduler(
+            mock_runner, MagicMock(), task_table, MagicMock(), MagicMock(),
+            AsyncMock(), ws_manager=ws_manager,
+        )
+        task = task_table.create(agent="coco咪", title="t", description="d")
+
+        # first pass: baseline only, no broadcast
+        await scheduler._broadcast_task_changes()
+        ws_manager.broadcast.assert_not_called()
+
+        # status change (as MCP update_task would write, cross-process)
+        task_table.update(task.id, status="running")
+        await scheduler._broadcast_task_changes()
+        calls = [c.args[0] for c in ws_manager.broadcast.call_args_list]
+        assert any(
+            c.get("type") == "task_table_updated" and c.get("data", {}).get("id") == task.id
+            for c in calls
+        )
+
+        # unchanged second pass: no new broadcast
+        ws_manager.broadcast.reset_mock()
+        await scheduler._broadcast_task_changes()
+        ws_manager.broadcast.assert_not_called()
+
+
+    async def test_cici_task_auto_done(self, task_table, mock_runner):
+        """cici咪 执行型任务完成后自动 done（无需审核自己，否则卡 running）。"""
+        task = task_table.create(agent="cici咪", title="引擎修复", description="d")
+        mock_runner._run.return_value = _make_result(agent_name="cici咪")
+        result_relay = AsyncMock()
+        router = MagicMock()
+        store = MagicMock()
+        session_store = MagicMock()
+        session_store.get_agent_session_id.return_value = "sid"
+
+        scheduler = TaskScheduler(
+            mock_runner, router, task_table, session_store, store, result_relay,
+        )
+        await scheduler._dispatch(task)
+
+        updated = task_table.get(task.id)
+        assert updated.status == "done"  # 自动标记，不卡 running
+        result_relay.relay.assert_not_called()  # 不审核自己
+
+    async def test_cici_task_failure_marks_failed(self, task_table, mock_runner):
+        task = task_table.create(agent="cici咪", title="t", description="d")
+        mock_runner._run.return_value = _make_result(agent_name="cici咪", exit_code=1)
+        result_relay = AsyncMock()
+        router = MagicMock()
+        store = MagicMock()
+        session_store = MagicMock()
+        session_store.get_agent_session_id.return_value = "sid"
+
+        scheduler = TaskScheduler(
+            mock_runner, router, task_table, session_store, store, result_relay,
+        )
+        await scheduler._dispatch(task)
+
+        assert task_table.get(task.id).status == "failed"
+
+
 class TestDeferredDispatch:
     """cici咪 busy 期间创建的任务延迟派发（用户报告的顺序问题）。"""
 

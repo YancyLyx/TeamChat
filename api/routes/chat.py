@@ -169,6 +169,10 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
                 "data": {"content": f"cici咪 正在忙，分析请求已排队（任务 #{task.id}），空闲后自动处理",
                          "timestamp": now},
             })
+            await ws_mgr.broadcast({
+                "type": "task_table_updated",
+                "data": task.to_dict(),
+            })
             return ChatResponse(target_agent="cici咪", task_prompt=content,
                                 status="queued_for_cici")
 
@@ -231,6 +235,11 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
                 "data": {"content": f"cici咪 分析完成，已创建 {len(new_tasks)} 个任务，调度器将自动派发",
                          "timestamp": now},
             })
+            for t in new_tasks:
+                await ws_mgr.broadcast({
+                    "type": "task_table_updated",
+                    "data": t.to_dict(),
+                })
         else:
             await ws_mgr.broadcast({
                 "type": "system_message",

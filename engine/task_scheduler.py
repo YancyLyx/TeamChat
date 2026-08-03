@@ -51,6 +51,11 @@ class TaskScheduler:
         self.result_relay = result_relay
         self.ws_manager = ws_manager
         self._running = False
+        # Diff-based WS watchdog: snapshot of task rows from the last poll,
+        # used to broadcast task_table_updated for ANY change — including
+        # cross-process writes (MCP server runs in a separate stdio process
+        # sharing the SQLite DB and cannot broadcast itself).
+        self._last_task_snapshot: dict[int, dict] | None = None
 
     def _find_agent(self, name: str) -> AgentIdentity | None:
         for a in ALL_AGENTS:
@@ -188,6 +193,18 @@ class TaskScheduler:
             if fixed:
                 logger.info(f"🔧 Fixed {fixed} cici咪-created task(s) session")
 
+        # cici咪 的执行型任务（分析/引擎修复/收尾）：她是决策者+执行者，
+        # 执行完即完成，无需审核自己（relay 对 cici咪 任务只 drain 不审核，
+        # 否则任务永久卡 running — 用户报告 #20 卡住）。
+        if task.agent == "cici咪":
+            self.task_table.update(
+                task.id,
+                status="done" if result.success else "failed",
+                output_summary=result.output[:500],
+            )
+            logger.info(f"✅ cici咪 任务 #{task.id} 自动标记 {'done' if result.success else 'failed'}")
+            return
+
         # Hand result to cici咪 for review — Engine does NOT mark done/failed.
         # Refresh task first so retry_count/last_error written during retries
         # are visible in the review prompt (soso咪 review Bug 1 on Phase 4.5).
@@ -213,6 +230,7 @@ class TaskScheduler:
                         await self._dispatch(task)
             except Exception as exc:
                 logger.error(f"Scheduler loop error: {exc}")
+            await self._broadcast_task_changes()
             await asyncio.sleep(POLL_INTERVAL)
 
     def _should_defer(self, task: Task) -> bool:
@@ -228,6 +246,25 @@ class TaskScheduler:
             return False
         # ISO timestamps compare lexicographically when same format
         return task.created_at > since
+
+    async def _broadcast_task_changes(self):
+        """Broadcast task_table_updated for any task row changed since the
+        last poll. Covers in-process writes (dispatch running/retry) AND
+        cross-process MCP create/update_task (separate stdio process) —
+        the Tasks board stays live without touching MCP's process boundary."""
+        tasks = self.task_table.list_tasks()
+        snapshot = {t.id: t.to_dict() for t in tasks}
+        if self._last_task_snapshot is None:
+            self._last_task_snapshot = snapshot  # first pass: baseline only
+            return
+        for task_id, current in snapshot.items():
+            previous = self._last_task_snapshot.get(task_id)
+            if previous is None or previous != current:
+                await self._broadcast({
+                    "type": "task_table_updated",
+                    "data": current,
+                })
+        self._last_task_snapshot = snapshot
 
     def stop(self):
         self._running = False
