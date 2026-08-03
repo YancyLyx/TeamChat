@@ -23,7 +23,6 @@ from engine.task_table import Task
 logger = logging.getLogger(__name__)
 
 REVIEW_TIMEOUT = 180
-MAX_OUTPUT_IN_PROMPT = 2000
 
 
 class ResultRelay:
@@ -133,8 +132,8 @@ class ResultRelay:
                 parts.append(f"（引擎已自动重试 {retries} 次后仍{'失败' if not result.success else '成功'}）")
             if not result.success and task.last_error:
                 parts.append(f"最后错误: {task.last_error[:300]}")
-            parts.append("执行输出:")
-            parts.append(result.output[:MAX_OUTPUT_IN_PROMPT])
+            parts.append("执行输出（完整）:")
+            parts.append(result.output)
             parts.append("")
         parts.extend([
             "## 请对每个任务：",
