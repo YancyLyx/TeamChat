@@ -272,6 +272,43 @@ class TestTaskScheduler:
         assert len(final_logs) == 1
 
 
+class TestDeferredDispatch:
+    """cici咪 busy 期间创建的任务延迟派发（用户报告的顺序问题）。"""
+
+    def _make_scheduler(self, task_table, router):
+        return TaskScheduler(
+            MagicMock(), router, task_table, MagicMock(), MagicMock(), AsyncMock(),
+        )
+
+    def test_defer_when_created_during_cici_busy(self, task_table):
+        task = task_table.create(agent="coco咪", title="t", description="d")
+        router = MagicMock()
+
+        def is_busy(agent):
+            return agent.name == "cici咪"  # cici咪 busy（分析中）
+        router.is_busy.side_effect = is_busy
+        router.busy_since.return_value = "2026-01-01T00:00:00+00:00"  # 早于任务创建
+
+        scheduler = self._make_scheduler(task_table, router)
+        assert scheduler._should_defer(task) is True
+
+    def test_no_defer_when_cici_free(self, task_table):
+        task = task_table.create(agent="coco咪", title="t", description="d")
+        router = MagicMock()
+        router.is_busy.return_value = False
+
+        scheduler = self._make_scheduler(task_table, router)
+        assert scheduler._should_defer(task) is False
+
+    def test_no_defer_for_cici_own_task(self, task_table):
+        task = task_table.create(agent="cici咪", title="t", description="d")
+        router = MagicMock()
+        router.is_busy.return_value = True  # cici咪 busy
+
+        scheduler = self._make_scheduler(task_table, router)
+        assert scheduler._should_defer(task) is False  # cici咪 自己的任务不受此限制
+
+
 # ---- ResultRelay ----
 
 

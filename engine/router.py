@@ -9,6 +9,7 @@ Rules match task types to the best agent. Supports:
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 
 from engine.config import AgentIdentity, AGENT_CICI, AGENT_COCO, AGENT_SOSO
@@ -58,6 +59,7 @@ class Router:
     def __init__(self, routes: dict[TaskType, AgentIdentity] | None = None):
         self.routes = routes or dict(DEFAULT_ROUTES)
         self._busy: set[str] = set()      # agents currently working
+        self._busy_since: dict[str, str] = {}  # agent -> ISO timestamp (for delayed dispatch)
 
     # ---- Routing ----
 
@@ -111,15 +113,21 @@ class Router:
     def mark_busy(self, agent: AgentIdentity):
         """Mark an agent as busy (currently handling a task)."""
         self._busy.add(agent.name)
+        self._busy_since[agent.name] = datetime.now(timezone.utc).isoformat()
         logger.debug(f"🔴 {agent.name} marked busy")
 
     def mark_free(self, agent: AgentIdentity):
         """Mark an agent as free."""
         self._busy.discard(agent.name)
+        self._busy_since.pop(agent.name, None)
         logger.debug(f"🟢 {agent.name} marked free")
 
     def is_busy(self, agent: AgentIdentity) -> bool:
         return agent.name in self._busy
+
+    def busy_since(self, agent: AgentIdentity) -> str | None:
+        """When this agent became busy (ISO timestamp), or None if free."""
+        return self._busy_since.get(agent.name)
 
     def available_agents(self) -> list[AgentIdentity]:
         """All agents that are not currently busy."""

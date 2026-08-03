@@ -14,7 +14,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-from engine.config import ALL_AGENTS, AgentIdentity
+from engine.config import AGENT_CICI, ALL_AGENTS, AgentIdentity
 from engine.dispatch import spawn_with_session
 from engine.router import Router
 from engine.runner import AgentRunner, AgentResult, AgentTask
@@ -205,10 +205,29 @@ class TaskScheduler:
                     agent = self._find_agent(task.agent)
                     # Only dispatch if the target agent is free (one task per agent at a time)
                     if agent and not self.router.is_busy(agent):
+                        # 延迟派发: cici咪 busy（分析/审核中）期间创建的任务，
+                        # 等 cici咪 空闲后再派发 — 避免 task_started 先于
+                        # cici咪 的回复显示（用户报告的顺序问题）。
+                        if self._should_defer(task):
+                            continue
                         await self._dispatch(task)
             except Exception as exc:
                 logger.error(f"Scheduler loop error: {exc}")
             await asyncio.sleep(POLL_INTERVAL)
+
+    def _should_defer(self, task: Task) -> bool:
+        """Defer dispatch if the task was created while cici咪 is busy
+        (analyzing/reviewing) — its creation is part of cici咪's turn, so the
+        dispatch should wait until cici咪 finishes and the user sees the reply."""
+        if task.agent == "cici咪":
+            return False  # cici咪 自己的任务，交给同一 busy 状态判断
+        if not self.router.is_busy(AGENT_CICI):
+            return False
+        since = self.router.busy_since(AGENT_CICI)
+        if not since or not task.created_at:
+            return False
+        # ISO timestamps compare lexicographically when same format
+        return task.created_at > since
 
     def stop(self):
         self._running = False
