@@ -47,11 +47,11 @@ class TestLivePanel:
         assert len(data["active_agents"]) == 3
         assert "queue_length" in data
 
-    def test_right_panel_has_stats_and_live_not_tasks(self, page: Page, e2e_servers):
+    def test_right_panel_has_tasks_stats_and_live(self, page: Page, e2e_servers):
         _goto(page, e2e_servers["dashboard_url"])
         _wait_connected(page)
 
         right_aside = page.locator("aside").last
+        expect(right_aside.get_by_role("button", name="Tasks", exact=True)).to_be_visible()
         expect(right_aside.get_by_role("button", name="Stats", exact=True)).to_be_visible()
         expect(right_aside.get_by_role("button", name="Live", exact=True)).to_be_visible()
-        expect(right_aside.get_by_role("button", name="Tasks", exact=True)).to_have_count(0)

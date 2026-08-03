@@ -59,6 +59,12 @@ async def get_table_task(request: Request, table_task_id: int):
 async def create_table_task(request: Request, req: TaskCreateRequest):
     tt = request.app.state.task_table
     task = tt.create(req.agent, req.title, req.description, req.depends_on)
+    ws_mgr = getattr(request.app.state, "ws_manager", None)
+    if ws_mgr:
+        await ws_mgr.broadcast({
+            "type": "task_table_updated",
+            "data": task.to_dict(),
+        })
     return task.to_dict()
 
 
@@ -69,7 +75,14 @@ async def update_table_task(request: Request, table_task_id: int, body: dict):
     if not task:
         raise HTTPException(status_code=404, detail=f"Task #{table_task_id} not found")
     tt.update(table_task_id, **body)
-    return tt.get(table_task_id).to_dict()
+    updated = tt.get(table_task_id).to_dict()
+    ws_mgr = getattr(request.app.state, "ws_manager", None)
+    if ws_mgr:
+        await ws_mgr.broadcast({
+            "type": "task_table_updated",
+            "data": updated,
+        })
+    return updated
 
 
 # ---- Legacy session-based task submission ----

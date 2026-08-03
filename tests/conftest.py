@@ -152,14 +152,13 @@ def e2e_servers(tmp_path_factory):
     from tests.e2e_support import (
         find_free_port,
         install_mock_runner,
-        release_port,
         start_vite_dev_server,
         wait_for_http,
     )
 
-    release_port(8000)
-    release_port(5173)
-
+    # 不再 release_port(8000/5173)：之前会 kill -9 占用端口的进程，
+    # 误杀用户正在运行的项目（soso咪 测试 Tasks 看板时 kill 了 uvicorn/vite）。
+    # e2e 测试用 find_free_port 随机端口，与用户项目完全隔离。
     api_port = find_free_port()
     dashboard_port = find_free_port()
     while dashboard_port == api_port:

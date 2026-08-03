@@ -84,6 +84,8 @@ class TestStatsTokenApi:
         _goto(page, e2e_servers["dashboard_url"])
         _wait_connected(page)
 
+        right_aside = page.locator("aside").last
+        right_aside.get_by_role("button", name="Stats", exact=True).click()
         stats_panel = page.locator("aside").last
         expect(stats_panel.get_by_role("button", name="L1 效能")).to_be_visible(timeout=10_000)
         expect(stats_panel.get_by_text(f"{expected_tokens} tokens", exact=True)).to_be_visible(timeout=10_000)

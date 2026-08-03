@@ -58,6 +58,8 @@ class TestStatsL1L2L3:
         _goto(page, e2e_servers["dashboard_url"])
         _wait_connected(page)
 
+        right_aside = page.locator("aside").last
+        right_aside.get_by_role("button", name="Stats", exact=True).click()
         stats_panel = page.locator("aside").last
         expect(stats_panel.get_by_role("button", name="L1 效能")).to_be_visible()
         expect(stats_panel.get_by_role("button", name="L2 效率")).to_be_visible()
@@ -69,6 +71,8 @@ class TestStatsL1L2L3:
         _goto(page, e2e_servers["dashboard_url"])
         _wait_connected(page)
 
+        right_aside = page.locator("aside").last
+        right_aside.get_by_role("button", name="Stats", exact=True).click()
         stats_panel = page.locator("aside").last
         stats_panel.get_by_role("button", name="L2 效率").click()
         expect(stats_panel.get_by_text("Engine Mode")).to_be_visible(timeout=10_000)
@@ -83,6 +87,8 @@ class TestStatsL1L2L3:
         _goto(page, e2e_servers["dashboard_url"])
         _wait_connected(page)
 
+        right_aside = page.locator("aside").last
+        right_aside.get_by_role("button", name="Stats", exact=True).click()
         stats_panel = page.locator("aside").last
         stats_panel.get_by_role("button", name="L3 解放").click()
         expect(stats_panel.get_by_text("Human Liberation")).to_be_visible(timeout=10_000)

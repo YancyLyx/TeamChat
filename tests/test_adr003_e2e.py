@@ -219,13 +219,13 @@ class TestAgentStatusBar:
 
 class TestTaskPanelColumns:
     def test_pending_running_done_columns(self, page: Page, e2e_servers, e2e_app):
-        api_url = e2e_servers["api_url"]
         pending_marker = f"PENDING_{uuid.uuid4().hex[:8]}"
         done_marker = f"DONE_{uuid.uuid4().hex[:8]}"
         running_marker = f"RUN_{uuid.uuid4().hex[:8]}"
 
         seed_task_table(e2e_app, agent="coco咪", title=pending_marker, status="pending")
         seed_task_table(e2e_app, agent="soso咪", title=done_marker, status="done")
+        seed_task_table(e2e_app, agent="coco咪", title=running_marker, status="running")
 
         _goto(page, e2e_servers["dashboard_url"])
         _wait_connected(page)
@@ -233,18 +233,7 @@ class TestTaskPanelColumns:
         task_panel = page.locator("aside").filter(has=page.get_by_text("Tasks", exact=True))
         expect(task_panel.get_by_text(pending_marker)).to_be_visible(timeout=10_000)
         expect(task_panel.get_by_text(done_marker)).to_be_visible(timeout=10_000)
-
-        worker = threading.Thread(
-            target=_submit_api_task,
-            args=(
-                api_url,
-                {"agent": "coco咪", "prompt": f"running column {running_marker}"},
-            ),
-            daemon=True,
-        )
-        worker.start()
         expect(task_panel.get_by_text(running_marker)).to_be_visible(timeout=15_000)
-        worker.join(timeout=60)
 
         page.reload()
         _wait_connected(page)

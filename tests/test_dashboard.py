@@ -11,20 +11,14 @@ Run:
 
 from __future__ import annotations
 
-import threading
 import uuid
 
-import httpx
 import pytest
 from playwright.sync_api import Page, expect
 
+from tests.e2e_support import seed_task_table
+
 pytestmark = [pytest.mark.e2e, pytest.mark.slow]
-
-HELLO_TASK = {
-    "agent": "cici咪",
-    "prompt": "Say hello in one short sentence. Output ONLY the greeting.",
-}
-
 
 def _goto_dashboard(page: Page, dashboard_url: str) -> None:
     page.goto(dashboard_url)
@@ -34,11 +28,6 @@ def _goto_dashboard(page: Page, dashboard_url: str) -> None:
 def _wait_connected(page: Page, timeout: float = 15_000) -> None:
     expect(page.get_by_text("WebSocket 已连接")).to_be_visible(timeout=timeout)
     expect(page.locator("header")).to_contain_text("Connected", timeout=timeout)
-
-
-def _submit_task(api_url: str, payload: dict) -> None:
-    response = httpx.post(f"{api_url}/api/tasks", json=payload, timeout=60.0)
-    response.raise_for_status()
 
 
 class TestDashboardLoad:
@@ -62,38 +51,25 @@ class TestWebSocketConnection:
 
 
 class TestTaskBoardFlow:
-    def test_submit_task_appears_in_progress(self, page: Page, e2e_servers):
-        api_url = e2e_servers["api_url"]
+    def test_running_task_appears_in_running_group(self, page: Page, e2e_servers, e2e_app):
+        marker = f"RUNNING_{uuid.uuid4().hex[:8]}"
+        seed_task_table(e2e_app, agent="coco咪", title=marker, status="running")
+
         _goto_dashboard(page, e2e_servers["dashboard_url"])
         _wait_connected(page)
 
-        token = uuid.uuid4().hex[:8]
-        payload = {**HELLO_TASK, "prompt": f"{HELLO_TASK['prompt']} {token}"}
+        tasks_panel = page.locator("aside").last
+        expect(tasks_panel.get_by_test_id("tasks-group-running").get_by_text(marker)).to_be_visible(timeout=10_000)
 
-        worker = threading.Thread(
-            target=_submit_task,
-            args=(api_url, payload),
-            daemon=True,
-        )
-        worker.start()
+    def test_done_task_appears_in_done_group(self, page: Page, e2e_servers, e2e_app):
+        marker = f"DONE_{uuid.uuid4().hex[:8]}"
+        seed_task_table(e2e_app, agent="soso咪", title=marker, status="done")
 
-        in_progress_section = page.locator("aside").filter(has=page.get_by_text("Running", exact=True))
-        expect(in_progress_section.get_by_text(token)).to_be_visible(timeout=10_000)
-        worker.join(timeout=60)
-
-    def test_task_moves_to_done_column(self, page: Page, e2e_servers):
-        api_url = e2e_servers["api_url"]
         _goto_dashboard(page, e2e_servers["dashboard_url"])
         _wait_connected(page)
 
-        token = uuid.uuid4().hex[:8]
-        _submit_task(api_url, {**HELLO_TASK, "prompt": f"{HELLO_TASK['prompt']} {token}"})
-
-        page.reload()
-        _wait_connected(page)
-
-        done_section = page.locator("aside").filter(has=page.get_by_text("Done", exact=True))
-        expect(done_section.get_by_text(token)).to_be_visible(timeout=15_000)
+        tasks_panel = page.locator("aside").last
+        expect(tasks_panel.get_by_test_id("tasks-group-done").get_by_text(marker)).to_be_visible(timeout=15_000)
 
 
 class TestWebSocketReconnect:
@@ -109,23 +85,14 @@ class TestWebSocketReconnect:
 
 
 class TestErrorState:
-    def test_failed_task_shows_error_indicator(self, page: Page, e2e_servers):
-        api_url = e2e_servers["api_url"]
+    def test_failed_task_shows_error_indicator(self, page: Page, e2e_servers, e2e_app):
+        marker = f"FAIL_{uuid.uuid4().hex[:8]}"
+        seed_task_table(e2e_app, agent="coco咪", title=marker, status="failed")
+
         _goto_dashboard(page, e2e_servers["dashboard_url"])
         _wait_connected(page)
 
-        fail_prompt = f"Please fail intentionally {uuid.uuid4().hex[:8]}"
-        _submit_task(
-            api_url,
-            {
-                "agent": "coco咪",
-                "prompt": fail_prompt,
-            },
-        )
-
-        page.reload()
-        _wait_connected(page)
-
-        done_section = page.locator("aside").filter(has=page.get_by_text("Done", exact=True))
-        expect(done_section.get_by_text("❌").first).to_be_visible(timeout=15_000)
-        expect(done_section.get_by_text(fail_prompt[:40])).to_be_visible(timeout=15_000)
+        tasks_panel = page.locator("aside").last
+        failed_group = tasks_panel.get_by_test_id("tasks-group-failed")
+        expect(failed_group.get_by_text(marker)).to_be_visible(timeout=15_000)
+        expect(failed_group.get_by_text("执行失败")).to_be_visible()

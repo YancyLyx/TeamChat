@@ -78,6 +78,7 @@ TeamChat/
 │           ├── ApprovalCard.jsx # 审批卡片
 │           ├── StatsPanel.jsx  # L1/L2/L3 指标
 │           ├── LivePanel.jsx   # Engine 观测
+│           ├── TasksBoard.jsx  # Tasks 看板（分组 + 依赖 + 失败操作）
 │           ├── SessionManager.jsx # 会话管理弹窗
 │           └── CompactTaskBoard.jsx # 任务看板
 │

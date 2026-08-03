@@ -5,11 +5,11 @@ import ChatRoom from './components/ChatRoom.jsx'
 import SessionManager from './components/SessionManager.jsx'
 import StatsPanel from './components/StatsPanel.jsx'
 import LivePanel from './components/LivePanel.jsx'
+import TasksBoard from './components/TasksBoard.jsx'
 import { UI_EMOJI } from './constants/agents.js'
 import { normalizeAgentMetrics } from './utils/metrics.js'
 
 const API_BASE = '/api'
-let tc = 0
 
 export default function App() {
   const [agents, setAgents] = useState([])
@@ -17,7 +17,7 @@ export default function App() {
   const [agSessions, setAgSessions] = useState({})
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
-  const [rightTab, setRightTab] = useState('stats')
+  const [rightTab, setRightTab] = useState('tasks')
   const [showSM, setShowSM] = useState(false)
   const [sessionLabel, setSessionLabel] = useState('加载中...')
   const [activeSessionId, setActiveSessionId] = useState(() => {
@@ -34,7 +34,8 @@ export default function App() {
 
   const fetchData = useCallback(async () => {
     try {
-     setLoading(true); setError(null)
+      setLoading(true)
+      setError(null)
       const [ar, sr, str, tr, er] = await Promise.all([
         fetch(`${API_BASE}/agents`),
         fetch(`${API_BASE}/sessions?limit=30`),
@@ -42,32 +43,28 @@ export default function App() {
         fetch(`${API_BASE}/tasks/table`),
         fetch(`${API_BASE}/engine`),
       ])
-      if (!ar.ok || !sr.ok || !str.ok) throw new Error('API failed')
-     const ad = await ar.json(), sd = await sr.json(), st = await str.json()
-     const tableRows = tr.ok ? await tr.json() : []
+      if (!ar.ok || !sr.ok || !str.ok || !tr.ok) throw new Error('API failed')
+      const ad = await ar.json(), sd = await sr.json(), st = await str.json()
+      const tableRows = await tr.json()
       const engineData = er.ok ? await er.json() : { active_agents: [] }
       const busyMap = {}
       for (const a of engineData.active_agents || []) { busyMap[a.name] = a.is_busy }
-     setAgentMetrics(normalizeAgentMetrics(st, sd))
-     setAgents(ad.map((a) => ({
-       ...a,
+      setAgentMetrics(normalizeAgentMetrics(st, sd))
+      setAgents(ad.map((a) => ({
+        ...a,
         is_busy: busyMap[a.name] ?? a.is_busy ?? false,
-       total_tasks: st?.agents?.[a.name]?.total_calls ?? a.total_tasks ?? 0,
+        total_tasks: st?.agents?.[a.name]?.total_calls ?? a.total_tasks ?? 0,
         success_rate: st?.agents?.[a.name]?.success_rate ?? a.success_rate ?? 0,
         avg_duration_ms: st?.agents?.[a.name]?.avg_duration_ms ?? a.avg_duration_ms ?? 0,
         total_tokens: st?.agents?.[a.name]?.total_tokens ?? a.total_tokens ?? 0,
       })))
-      const ba = {}; for (const s of sd) { if (!ba[s.agent_name]) ba[s.agent_name] = []; ba[s.agent_name].push(s) }; setAgSessions(ba)
-      const sessionTasks = sd.map((s) => ({ id: `session-${s.id}`, title: s.prompt.slice(0, 80), agent: s.agent_name, status: s.exit_code === 0 ? 'done' : 'failed', exit_code: s.exit_code, duration_ms: s.duration_ms, time: new Date(s.started_at).toLocaleTimeString(), preview: s.output.slice(0, 100) }))
-      const tableTasks = tableRows.map((t) => ({
-        id: `table-${t.id}`,
-        title: t.title,
-        agent: t.agent,
-        status: t.status === 'done' ? 'done' : t.status === 'failed' ? 'failed' : t.status,
-        duration_ms: null,
-        preview: t.output_summary || '',
-      }))
-      setTasks([...tableTasks, ...sessionTasks])
+      const ba = {}
+      for (const s of sd) {
+        if (!ba[s.agent_name]) ba[s.agent_name] = []
+        ba[s.agent_name].push(s)
+      }
+      setAgSessions(ba)
+      setTasks(tableRows)
     } catch (err) { setError(err.message) }
     finally { setLoading(false) }
   }, [])
@@ -127,35 +124,63 @@ export default function App() {
     setActiveSessionId(stored ? Number(stored) : null)
   }, [])
 
+  const handleUpdateTask = useCallback(async (taskId, body) => {
+    const res = await fetch(`${API_BASE}/tasks/table/${taskId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || `HTTP ${res.status}`)
+    }
+    const updated = await res.json()
+    setTasks((prev) => {
+      const idx = prev.findIndex((t) => t.id === taskId)
+      if (idx >= 0) {
+        const next = [...prev]
+        next[idx] = { ...next[idx], ...updated }
+        return next
+      }
+      return [...prev, updated]
+    })
+    return updated
+  }, [])
+
   useEffect(() => {
     if (wsMessages.length <= lastMcRef.current) return
-    const nm = wsMessages.slice(lastMcRef.current); lastMcRef.current = wsMessages.length
+    const nm = wsMessages.slice(lastMcRef.current)
+    lastMcRef.current = wsMessages.length
     for (const m of nm) {
-      if (m.type === 'task_started') { const d = m.data || {}; tc += 1; setTasks(p => [{ id: `t-${tc}`, title: (d.prompt || '').slice(0, 80), agent: d.agent, status: 'running', time: new Date().toLocaleTimeString() }, ...p]); setAgents(p => p.map(a => a.name === d.agent ? { ...a, is_busy: true, busy_since: Date.now() } : a)) }
-      if (m.type === 'task_table_updated') {
+      if (m.type === 'task_started') {
         const d = m.data || {}
-        const tid = d.id ? `table-${d.id}` : null
+        setAgents(p => p.map(a => a.name === d.agent ? { ...a, is_busy: true, busy_since: Date.now() } : a))
+      } else if (m.type === 'task_table_updated') {
+        const d = m.data || {}
+        const tid = d.id != null ? d.id : null
         if (tid) {
           setTasks(p => {
             const idx = p.findIndex(t => t.id === tid)
-            const row = { id: tid, title: (d.title || '').slice(0, 80), agent: d.agent, status: d.status === 'done' ? 'done' : d.status === 'failed' ? 'failed' : d.status, duration_ms: d.duration_ms, preview: d.output_summary || '' }
+            const row = { ...d }
             if (idx >= 0) { const next = [...p]; next[idx] = { ...next[idx], ...row }; return next }
             return [row, ...p]
           })
         }
+      } else if (m.type === 'task_complete') {
+        const d = m.data || {}
+        setAgents(p => p.map(a => a.name === d.agent ? { ...a, is_busy: false, busy_since: null } : a))
       }
-      if (m.type === 'task_complete') { const d = m.data || {}; setTasks(p => { const si = d.session_id ? `session-${d.session_id}` : null; let mt = false; return p.map(t => { if (mt) return t; if (si && t.id === si) { mt = true; return { ...t, status: d.success ? 'done' : 'failed', exit_code: d.success ? 0 : 1, duration_ms: d.duration_ms, preview: d.output_preview } } if (!si && t.agent === d.agent && t.status === 'running') { mt = true; return { ...t, status: d.success ? 'done' : 'failed', exit_code: d.success ? 0 : 1, duration_ms: d.duration_ms, preview: d.output_preview } } return t }) }); setAgents(p => p.map(a => a.name === d.agent ? { ...a, is_busy: false, busy_since: null } : a)) }
-   // Track live events for the Live Panel
-   if (m.type !== 'pong' && m.type !== 'connected') {
-      const eventKey = `${m.type}|${m.data?.agent || m.data?.from || ''}|${m.data?.content || m.data?.prompt || m.data?.output_preview || ''}`.slice(0, 200)
-      const now = Date.now()
-      if (liveEventsDedup.current.has(eventKey) && now - liveEventsDedup.current.get(eventKey) < 3000) continue
-      liveEventsDedup.current.set(eventKey, now)
-      if (liveEventsDedup.current.size > 200) {
-        liveEventsDedup.current = new Map([...liveEventsDedup.current.entries()].slice(-100))
+
+      if (m.type !== 'pong' && m.type !== 'connected') {
+        const eventKey = `${m.type}|${m.data?.agent || m.data?.from || ''}|${m.data?.content || m.data?.prompt || m.data?.output_preview || ''}`.slice(0, 200)
+        const now = Date.now()
+        if (liveEventsDedup.current.has(eventKey) && now - liveEventsDedup.current.get(eventKey) < 3000) continue
+        liveEventsDedup.current.set(eventKey, now)
+        if (liveEventsDedup.current.size > 200) {
+          liveEventsDedup.current = new Map([...liveEventsDedup.current.entries()].slice(-100))
+        }
+        setLiveEvents((prev) => [...prev.slice(-19), m])
       }
-      setLiveEvents((prev) => [...prev.slice(-19), m])
-    }
     }
   }, [wsMessages])
 
@@ -192,10 +217,11 @@ export default function App() {
         {rightOpen && (
             <>
               <div className="flex border-b border-gray-100">
+                <button onClick={() => setRightTab('tasks')} className={`flex-1 text-xs py-2 font-medium transition-colors ${rightTab === 'tasks' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'}`}>Tasks</button>
                 <button onClick={() => setRightTab('stats')} className={`flex-1 text-xs py-2 font-medium transition-colors ${rightTab === 'stats' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'}`}>Stats</button>
                 <button onClick={() => setRightTab('live')} className={`flex-1 text-xs py-2 font-medium transition-colors ${rightTab === 'live' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'}`}>Live</button>
               </div>
-              {rightTab === 'stats' ? <StatsPanel agentMetrics={agentMetrics} /> : <LivePanel recentEvents={liveEvents} />}
+              {rightTab === 'tasks' ? <TasksBoard tasks={tasks} sessionId={activeSessionId} onUpdateTask={handleUpdateTask} /> : rightTab === 'stats' ? <StatsPanel agentMetrics={agentMetrics} /> : <LivePanel recentEvents={liveEvents} />}
             </>
           )}
         </aside>
