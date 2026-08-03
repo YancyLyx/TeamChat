@@ -229,6 +229,12 @@ async def features(request: Request, teamchat_session_id: int = 1):
             "abandon_rate": round(abandoned / total, 3) if total else 0,
             "depth": depth,
             "duration_sec": int(duration_sec),
+            # 节点结构（DAG 图渲染用）：id/title/status/depends_on
+            "nodes": [
+                {"id": t.id, "title": t.title, "status": t.status,
+                 "depends_on": t.depends_on, "agent": t.agent}
+                for t in nodes
+            ],
         })
     features.sort(key=lambda f: -f["feature_id"])
     return {"features": features}

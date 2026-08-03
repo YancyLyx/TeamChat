@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react'
 import { AGENT_EMOJI, AGENT_NAMES } from '../constants/agents.js'
 import { formatTokens, weeklySummary, liberationMetrics } from '../utils/metrics.js'
+import DagGraph from './DagGraph.jsx'
 
 const API_BASE = '/api'
 
@@ -28,7 +29,7 @@ export default function StatsPanel({ agentMetrics = {} }) {
   const liberation = liberationMetrics({ agentMetrics, summary, taskStats, humanMessages })
 
   useEffect(() => {
-    if (subTab !== 'FEAT') return
+    if (subTab !== 'L2') return
     let cancelled = false
     setFeaturesLoading(true)
     ;(async () => {
@@ -81,12 +82,12 @@ export default function StatsPanel({ agentMetrics = {} }) {
 
   return (
     <div className="p-3 space-y-4 bg-white">
-      {/* Sub-tab nav：L1 效能 / L2 流程 / L3 解放 / 📦 Features（需求树聚合） */}
+      {/* Sub-tab nav：L1 效能 / L2 流程（含需求树）/ L3 解放 */}
       <div className="flex border-b border-gray-100 -mx-3 px-3">
-        {['L1', 'L2', 'L3', 'FEAT'].map((tab) => (
+        {['L1', 'L2', 'L3'].map((tab) => (
           <button key={tab} onClick={() => setSubTab(tab)}
             className={`flex-1 text-xs py-1.5 font-medium transition-colors ${subTab === tab ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'}`}>
-            {tab === 'L1' ? 'L1 效能' : tab === 'L2' ? 'L2 流程' : tab === 'L3' ? 'L3 解放' : '📦 Features'}
+            {tab === 'L1' ? 'L1 效能' : tab === 'L2' ? 'L2 流程' : 'L3 解放'}
           </button>
         ))}
       </div>
@@ -150,6 +151,53 @@ export default function StatsPanel({ agentMetrics = {} }) {
                 </div>
                 <p className="text-[10px] text-gray-400 font-mono">completion: {((taskStats?.completion_rate || 0) * 100).toFixed(0)}%</p>
               </div>
+              {/* 需求树（Features）：进行中 DAG 图 + 已完成折叠 */}
+              <div className="bg-gray-50 rounded-lg p-2.5 space-y-2">
+                <p className="text-[10px] text-gray-400 font-semibold uppercase">📦 需求树</p>
+                {featuresLoading ? (
+                  <div className="h-8 bg-gray-100 rounded animate-pulse" />
+                ) : features.length === 0 ? (
+                  <p className="text-[10px] text-gray-400 text-center py-3">暂无需求树</p>
+                ) : (
+                  <>
+                    {/* 进行中（有 running/pending 节点）→ DAG 图 */}
+                    {features.filter((f) => f.running > 0 || f.pending > 0).map((f) => (
+                      <div key={f.feature_id} className="bg-white border border-gray-100 rounded-lg p-2">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] font-semibold text-gray-700 truncate max-w-[70%]" title={f.title}>
+                            <span className="text-blue-500">🔄</span> {f.title}
+                          </span>
+                          <span className="text-[10px] text-gray-400 font-mono">{f.total}节点 · {(f.completion_rate * 100).toFixed(0)}%</span>
+                        </div>
+                        <DagGraph nodes={f.nodes || []} />
+                        <div className="flex flex-wrap gap-x-2 text-[9px] text-gray-400 font-mono mt-0.5">
+                          <span className="text-green-600">done {f.done}</span>
+                          <span className="text-red-600">failed {f.failed}</span>
+                          <span className="text-gray-500">放弃 {f.abandoned}</span>
+                          <span className="text-blue-600">running {f.running}</span>
+                          <span className="text-yellow-600">pending {f.pending}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {/* 已完成（全 done/abandoned）→ 折叠列表 */}
+                    {features.filter((f) => f.running === 0 && f.pending === 0).length > 0 && (
+                      <details className="bg-white border border-gray-100 rounded-lg p-2">
+                        <summary className="text-[10px] text-gray-500 font-mono cursor-pointer select-none">
+                          ✅ 已完成（{features.filter((f) => f.running === 0 && f.pending === 0).length}）
+                        </summary>
+                        <div className="space-y-1 mt-1.5">
+                          {features.filter((f) => f.running === 0 && f.pending === 0).map((f) => (
+                            <div key={f.feature_id} className="text-[10px] flex items-center justify-between">
+                              <span className="text-gray-600 truncate max-w-[70%]" title={f.title}>{f.title}</span>
+                              <span className="text-gray-400 font-mono">{f.total}节点 · {(f.completion_rate * 100).toFixed(0)}% · done {f.done} · 放弃 {f.abandoned}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+                  </>
+                )}
+              </div>
             </>
           )}
         </div>
@@ -166,38 +214,6 @@ export default function StatsPanel({ agentMetrics = {} }) {
               <div><span className="text-gray-400">Message to Completion</span><p className="text-sm font-bold text-gray-700 mt-0.5">{liberation.message_to_completion}</p></div>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* 📦 Features — 需求树聚合（feature_id） */}
-      {subTab === 'FEAT' && (
-        <div className="space-y-3">
-          {featuresLoading ? (
-            <div className="space-y-2"><div className="h-3 bg-gray-100 rounded animate-pulse w-16" /><div className="h-12 bg-gray-100 rounded animate-pulse" /></div>
-          ) : features.length === 0 ? (
-            <p className="text-xs text-gray-400 text-center py-6">暂无需求树</p>
-          ) : (
-            features.map((f) => (
-              <div key={f.feature_id} className="bg-white border border-gray-100 rounded-lg p-3">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-semibold text-gray-700 truncate max-w-[70%]" title={f.title}>{f.title}</span>
-                  <span className="text-[10px] text-gray-400 font-mono">{f.total} 节点 · 深度 {f.depth}</span>
-                </div>
-                <Bar pct={f.completion_rate * 100} />
-                <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1 text-[10px] text-gray-400 font-mono">
-                  <span className="text-green-600">done {f.done}</span>
-                  <span className="text-red-600">failed {f.failed}</span>
-                  <span className="text-gray-500">放弃 {f.abandoned}</span>
-                  <span className="text-blue-600">running {f.running}</span>
-                  <span className="text-yellow-600">pending {f.pending}</span>
-                  <span className="ml-auto">完成率 {(f.completion_rate * 100).toFixed(0)}%</span>
-                </div>
-                {f.duration_sec > 0 && (
-                  <p className="text-[10px] text-gray-400 font-mono mt-0.5">总时长 {(f.duration_sec / 60).toFixed(0)}min</p>
-                )}
-              </div>
-            ))
-          )}
         </div>
       )}
 
