@@ -475,6 +475,56 @@ TaskScheduler 派发 soso咪 执行任务 X（running）
 
 ---
 
+### Tasks 看板设计（2026-08-03，前端功能，替代 ADR-003 §8.2 的 Tasks tab 原设计）
+
+**目标**：解决"流程透明度"——用户能直观看到任务状态（running/done）、DAG 走到哪、失败原因。数据已加载（App.jsx setTasks）未渲染，补齐渲染层。
+
+**5 个优化点**（相对 ADR-003 §8.2 原设计）：
+
+| # | 优化 | 说明 |
+|---|---|---|
+| 1 | 依赖可视化 | 任务卡片显示"等 #16 完成"，直接回答"DAG 到哪了" |
+| 2 | Waiting 分组（等依赖） | 区分"可执行 pending"和"被依赖阻塞"，一眼看出流程卡点 |
+| 3 | Failed 分组 + 重试信息 | 失败任务显示 retry_count/last_error + 三选项按钮（重试/转派/放弃，调 update_task） |
+| 4 | 按 agent 筛选 | 查看单个咪的任务 |
+| 5 | 实时更新 | WebSocket `task_table_updated` 事件已有，看板自动刷新 |
+
+**效果图**：
+
+```
+┌─ 📋 Tasks ──────────────────────────── [全部 agent ▾] ─┐
+│  🔴 Running (1)                                       │
+│    #16 实现看板 UI ── coco咪                          │
+│      🔄 执行中 23s              [依赖 #15 ✓]          │
+│  ⏳ Waiting (2)          ← 依赖未满足                  │
+│    #17 审查看板 UI ── soso咪                          │
+│      ⏸ 等 #16 完成                                    │
+│    #18 合并收尾 ── cici咪                             │
+│      ⏸ 等 #17 完成                                    │
+│  📝 Pending (1)                                       │
+│    #19 排队: "先看这个问题" ── coco咪                 │
+│  ✅ Done (5)                                          │
+│    #15 建模看板设计 ── cici咪   ✓                     │
+│  ❌ Failed (1)                                        │
+│    #8 写测试计划文档 ── coco咪                        │
+│      ⚠️ 重试3次: network timeout                      │
+│      [重试] [转派] [放弃]                             │
+└────────────────────────────────────────────────────────┘
+```
+
+**分组规则**：
+- Running：status=running
+- Waiting：status=pending 且 depends_on 未满足（`task_table.blocked_tasks()`）
+- Pending：status=pending 且无依赖阻塞（`task_table.unblocked_tasks()`）
+- Done：status=done
+- Failed：status=failed/abandoned（显示 retry_count/last_error）
+
+**数据来源**：`GET /api/tasks/table`（已有）+ WebSocket `task_table_updated`（已有）
+
+**实现者**：coco咪（前端职责）。用户发消息 → cici咪 分析 → 派发 coco咪。
+
+---
+
 ### Phase 4.3: Agent Bids（认领机制）
 
 **目标**：任务可以"竞拍"，而不是硬编码分配给谁。
