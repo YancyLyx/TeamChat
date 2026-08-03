@@ -133,11 +133,6 @@ export default function StatsPanel({ agentMetrics = {}, l3Stats = null, sessionI
           ) : (
             <>
               <div className="bg-gray-50 rounded-lg p-2.5 space-y-1.5">
-                <p className="text-[10px] text-gray-400 font-mono">
-                  queue（待审核结果）: {engine?.queue_length ?? 0}
-                </p>
-              </div>
-              <div className="bg-gray-50 rounded-lg p-2.5 space-y-1.5">
                 <p className="text-[10px] text-gray-400 font-semibold uppercase">Task Stats</p>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="bg-white rounded-lg p-2"><span className="text-gray-400 text-[10px]">Total</span><p className="text-sm font-bold text-gray-700">{taskStats?.total || 0}</p></div>
