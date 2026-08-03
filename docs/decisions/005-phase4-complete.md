@@ -557,6 +557,53 @@ TaskScheduler 派发 soso咪 执行任务 X（running）
 
 ---
 
+### Feature 树标识（feature_id，2026-08-03 设计）
+
+**问题**：每个需求（如"实现 Tasks 看板"）应是一棵 DAG 树且有标识，但当前任务扁平存在 task_table，只有 depends_on 关联，无法区分"哪些任务属于哪个需求"。"depends_on=[] 当根"不可靠（独立任务/转派任务误判）。
+
+**方案**：
+- task_table 加 `feature_id INTEGER` 字段（同一棵需求树的节点共享）
+- **归属规则**（create_task 时确定，Engine 侧）：
+  1. 显式传 feature_id → 归属该树（cici咪 追加修复/转派时传）
+  2. depends_on 非空 → 继承依赖任务的 feature_id（自动归属父树）
+  3. 都没有 → 新需求：feature_id = 自己的任务 id（自己是根）
+  - 转派/改依赖（update）不影响 feature_id（保持原树）
+- MCP create_task 加 `feature_id` 参数；prompt 引导"追加修复/转派任务传入原 feature_id"
+- **Stats 聚合**：按 feature_id 统计（完成率/失败率/放弃率/转派率/依赖深度/总时长），Feature 标题 = 根任务标题
+- 与 task 面板区分：task 面板 = 会话下所有任务（运行视图）；Features = 需求粒度聚合
+
+### Stats 面板优化（2026-08-03 设计，用户要求）
+
+**现状问题**：
+1. token 爆炸：codex 的 token_usage 是累计值（每次 resume 是整个线程的 usage，5-6M/次），token_stats 累加 → coco咪 100.5M
+2. tool calls 全 0：runner 解析 tool_use 但未存入 agent_calls.tool_calls
+3. 三个 Level 目的不清晰、有重复（L1/L2 都是任务统计）
+4. 无需求粒度（Feature）聚合
+
+**Level 重定义**（各管一维，消除重复）：
+
+| Level | 观测维度 | 核心指标 |
+|---|---|---|
+| L1 效能 | agent 执行质量 | 完成数、成功率、平均时长、token（修累计）、工具调用（补记录） |
+| L2 流程 | DAG/队列结构 | Engine Mode、队列、DAG 数、依赖深度、阻塞任务、平均周转（替换重复的任务统计） |
+| L3 解放 | 人类参与 | 自动化率、人工介入、消息→完成、审批次数 |
+
+**数据修复**：
+- token：codex 改为增量估算（本次 usage - 上次）或标注"线程累计"；claude/cursor 的 usage 是增量（直接累计）
+- tool calls：runner 收集 tool_use 事件写入 agent_calls.tool_calls
+
+**新增 Features 视图**（按 feature_id 聚合）：
+
+```
+📦 Features
+  [实现 Tasks 看板] (feature #16)  6 节点
+    ✅ 完成率 83% · done 5 · 放弃 1 · 转派 1 · 依赖深度 4
+  [修复 codex 会话]  (feature #26)  2 节点
+    ✅ 完成率 100%
+```
+
+---
+
 ### Phase 4.3: Agent Bids（认领机制）
 
 **目标**：任务可以"竞拍"，而不是硬编码分配给谁。
