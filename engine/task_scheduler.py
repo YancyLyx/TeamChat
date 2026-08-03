@@ -175,7 +175,7 @@ class TaskScheduler:
         await self._broadcast({
             "type": "chat_message",
             "data": {"kind": "agent_reply", "agent": agent.name,
-                     "content": result.output[:500], "timestamp": finish_now},
+                     "content": result.output, "timestamp": finish_now},
         })
 
         # cici咪 executing this task (e.g. a queued analysis) may have created

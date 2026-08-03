@@ -83,7 +83,7 @@ export default function ChatRoom({ wsMessages, connectionStatus, sessionId }) {
         }
         if (s.id) { seenIds.current.add(`session-${s.id}-prompt`); seenIds.current.add(`session-${s.id}-result`) }
         initial.push({ id: `session-${s.id}-prompt`, kind: 'task_event', agent: s.agent_name, content: s.prompt.slice(0, 80), type: 'task_started', timestamp: s.started_at })
-        initial.push({ id: `session-${s.id}-result`, kind: 'agent', agent: s.agent_name, content: s.output.slice(0, 300), timestamp: s.finished_at })
+        initial.push({ id: `session-${s.id}-result`, kind: 'agent', agent: s.agent_name, content: s.output, timestamp: s.finished_at })
       }
       for (const m of initial) { if (m.id) seenIds.current.add(m.id) }
       setChatMessages(initial)

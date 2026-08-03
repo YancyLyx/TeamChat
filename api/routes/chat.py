@@ -133,7 +133,7 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
                 "data": {
                     "kind": "agent_reply",
                     "agent": agent.name,
-                    "content": result.output[:500],
+                    "content": result.output,
                     "timestamp": now,
                 },
             })
@@ -208,11 +208,20 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
         # 判断 cici咪 是否真的创建了新任务（用于准确的系统提示，修复"说没建却显示已建"）
         new_tasks = [t for t in task_table.list_tasks() if t.id not in tasks_before]
 
-        # Show cici咪's output in chat bubble（放宽截断 500 → 2000）
+        # Show cici咪's output in chat bubble — 完整输出，不截断（用户要求）
         await ws_mgr.broadcast({
             "type": "chat_message",
-            "data": {"kind": "agent_reply", "agent": "cici咪", "content": analysis[:2000], "timestamp": now},
+            "data": {"kind": "agent_reply", "agent": "cici咪", "content": analysis, "timestamp": now},
         })
+        # 持久化 cici咪 分析回复（修复：重启/刷新后历史丢失咪的输出）
+        store.log(
+            agent_name="cici咪", prompt=analysis_prompt,
+            output=analysis, exit_code=result.exit_code,
+            duration_ms=result.duration_ms, token_usage=result.token_usage,
+            task_type="chat_analysis", tag="prod",
+            teamchat_session_id=teamchat_session_id,
+            started_at=result.started_at, finished_at=result.finished_at,
+        )
 
         # The TaskScheduler (background loop) picks up unblocked tasks and dispatches them —
         # no synchronous dispatch here (ADR-003 中枢模式: Engine 派发, cici咪 决策).
@@ -297,7 +306,7 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
         })
         await ws_mgr.broadcast({
             "type": "chat_message",
-            "data": {"kind": "agent_reply", "agent": target.name, "content": result.output[:500],
+            "data": {"kind": "agent_reply", "agent": target.name, "content": result.output,
                      "timestamp": now, "session_id": call_id},
         })
 

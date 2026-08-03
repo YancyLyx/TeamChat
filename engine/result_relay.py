@@ -114,7 +114,7 @@ class ResultRelay:
         await self._broadcast({
             "type": "chat_message",
             "data": {"kind": "agent_reply", "agent": "cici咪",
-                     "content": result.output[:500],
+                     "content": result.output,
                      "timestamp": datetime.now(timezone.utc).isoformat()},
         })
         logger.info(f"✅ cici咪 review done ({len(result.output)} chars)")
