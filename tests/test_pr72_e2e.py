@@ -64,21 +64,21 @@ class TestStatsL1L2L3:
         expect(stats_panel.get_by_role("button", name="L1 效能")).to_be_visible()
         expect(stats_panel.get_by_role("button", name="L2 流程")).to_be_visible()
         expect(stats_panel.get_by_role("button", name="L3 解放")).to_be_visible()
+        stats_panel.get_by_role("button", name="L1 效能").click()
         expect(stats_panel.get_by_text("tool calls").first).to_be_visible(timeout=10_000)
         expect(stats_panel.get_by_text("Weekly Summary")).to_be_visible()
 
-    def test_l2_shows_engine_and_task_stats(self, page: Page, e2e_servers):
+    def test_l2_shows_task_stats_and_feature_tree(self, page: Page, e2e_servers):
         _goto(page, e2e_servers["dashboard_url"])
         _wait_connected(page)
 
         right_aside = page.locator("aside").last
         right_aside.get_by_role("button", name="Stats", exact=True).click()
         stats_panel = page.locator("aside").last
-        stats_panel.get_by_role("button", name="L2 流程").click()
-        expect(stats_panel.get_by_text("Engine Mode")).to_be_visible(timeout=10_000)
-        expect(stats_panel.get_by_text("Parallel")).to_be_visible()
-        expect(stats_panel.get_by_text("Task Stats")).to_be_visible()
+        # StatsPanel 默认子 tab 为 L2 流程（Task Stats + 需求树）
+        expect(stats_panel.get_by_text("Task Stats")).to_be_visible(timeout=10_000)
         expect(stats_panel.get_by_text("completion:")).to_be_visible()
+        expect(stats_panel.get_by_text("📦 需求树")).to_be_visible()
 
     def test_l3_shows_computed_liberation_metrics(self, page: Page, e2e_servers, e2e_app):
         seed_session(

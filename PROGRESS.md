@@ -10,6 +10,14 @@ Phase: ADR-005 Phase 4.0 **端到端验证通过**（2026-08-01 本地）。协�
 
 **2026-08-03 新增：** Stats 面板 L3 接入 `/api/stats.l3`（#30 P0）：App 保留并透传 l3，StatsPanel 展示自动化率/人工介入/消息→完成/审批次数。
 
+**2026-08-03 新增：** Stats L2 增加 Failed/Abandoned 卡片，Tasks 看板 abandoned 标签统一为英文；`/api/tasks/table/stats` 补齐 `by_status` 与顶层 `abandoned`。
+
+**✅ 2026-08-03 #3 测试批跑污染收尾（cici咪）：** 全量套件 171 passed, 0 failed。
+- 根因 1：Playwright e2e 与单元测试混跑污染事件循环 → `addopts = ["-m", "not e2e"]` + TestMarkdownUnit 拆分标记
+- 根因 2（顺带暴露的真实引擎 bug）：`_read_claude_stream` 超时只 break 不 kill 进程 → sleep 30 跑满 30s 返回 exit_code=0 误判成功 → 超时后 kill + re-raise，`_run` 统一返回 TIMEOUT（exit_code=-1）
+- 防护：e2e_servers 的 store/task_table/session_store 全部走 e2e_root（tmp_path 隔离 DB，monkeypatch load_config），不再碰真实 `.teamchat/teamchat.db`
+- mock 过时修复：test_integration IntegrationTestConfig 补 get_cli_command/get_token、FakeProcess 补 stdout、stream-json payload 格式
+
 **✅ 2026-08-03 阻塞项已全部解决（#18 收尾确认）：**
 - P2 Failed 文案：guard 已移除（#25 soso咪 转派落地），TestErrorState 通过 ✅
 - **coco咪 codex 会话早退根因（#26）**：线程 019fbc3b 反复 resume 膨胀至 ~6M input tokens（≥3.5M 后模型只回计划即退）→ 已修复：dispatch.py 加 codex 会话轮换（8 次 resume 自动冷启动，仅 codex）+ session 2 codex_id 已立即重置（下次任务冷启动新线程）；**需重启引擎进程使轮换代码生效**

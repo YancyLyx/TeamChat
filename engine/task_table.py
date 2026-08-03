@@ -321,8 +321,10 @@ class TaskTable:
             "pending": by_status.get("pending", 0),
             "running": by_status.get("running", 0),
             "failed": by_status.get("failed", 0),
+            "abandoned": by_status.get("abandoned", 0),
             "completion_rate": done / total if total > 0 else 0.0,
             "by_agent": self._stats_by_agent(),
+            "by_status": by_status,
         }
 
     def _stats_by_agent(self) -> dict:

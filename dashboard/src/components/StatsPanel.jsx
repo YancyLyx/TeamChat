@@ -139,6 +139,8 @@ export default function StatsPanel({ agentMetrics = {}, l3Stats = null, sessionI
                   <div className="bg-white rounded-lg p-2"><span className="text-gray-400 text-[10px]">Done</span><p className="text-sm font-bold text-green-600">{taskStats?.done || 0}</p></div>
                   <div className="bg-white rounded-lg p-2"><span className="text-gray-400 text-[10px]">Pending</span><p className="text-sm font-bold text-yellow-600">{taskStats?.pending || 0}</p></div>
                   <div className="bg-white rounded-lg p-2"><span className="text-gray-400 text-[10px]">Running</span><p className="text-sm font-bold text-blue-600">{taskStats?.running || 0}</p></div>
+                  <div className="bg-white rounded-lg p-2"><span className="text-gray-400 text-[10px]">Failed</span><p className="text-sm font-bold text-red-600">{taskStats?.by_status?.failed ?? taskStats?.failed ?? 0}</p></div>
+                  <div className="bg-white rounded-lg p-2"><span className="text-gray-400 text-[10px]">Abandoned</span><p className="text-sm font-bold text-gray-500">{taskStats?.by_status?.abandoned ?? taskStats?.abandoned ?? 0}</p></div>
                 </div>
                 <p className="text-[10px] text-gray-400 font-mono">completion: {((taskStats?.completion_rate || 0) * 100).toFixed(0)}%</p>
               </div>

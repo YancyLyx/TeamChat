@@ -7,7 +7,7 @@ const GROUPS = [
   { key: 'pending', label: 'Pending', icon: UI_EMOJI.clipboard, color: 'text-gray-600' },
   { key: 'done', label: 'Done', icon: UI_EMOJI.check, color: 'text-green-600' },
   { key: 'failed', label: 'Failed', icon: UI_EMOJI.cross, color: 'text-red-600' },
-  { key: 'abandoned', label: '已放弃', icon: UI_EMOJI.warning, color: 'text-gray-400' },
+  { key: 'abandoned', label: 'Abandoned', icon: UI_EMOJI.warning, color: 'text-gray-400' },
 ]
 
 const DONE_SHOW_LIMIT = 5  // Done 列表默认显示数量（用户要求）

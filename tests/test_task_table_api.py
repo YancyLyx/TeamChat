@@ -72,3 +72,35 @@ class TestTaskTableBroadcast:
 
         assert resp.status_code == 404
         app.state.ws_manager.broadcast.assert_not_awaited()
+
+
+class TestTaskTableStats:
+    def test_stats_includes_failed_and_abandoned(self, client):
+        c, _, tt = client
+        tt.create("coco咪", "pending")
+        running = tt.create("coco咪", "running")
+        tt.update(running.id, status="running")
+        failed = tt.create("coco咪", "failed")
+        tt.update(failed.id, status="failed")
+        abandoned = tt.create("coco咪", "abandoned")
+        tt.update(abandoned.id, status="abandoned")
+        done = tt.create("coco咪", "done")
+        tt.update(done.id, status="done")
+
+        resp = c.get("/api/tasks/table/stats")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 5
+        assert data["done"] == 1
+        assert data["pending"] == 1
+        assert data["running"] == 1
+        assert data["failed"] == 1
+        assert data["abandoned"] == 1
+        assert data["by_status"] == {
+            "pending": 1,
+            "running": 1,
+            "failed": 1,
+            "abandoned": 1,
+            "done": 1,
+        }

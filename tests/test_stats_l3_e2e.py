@@ -82,14 +82,14 @@ def _seed_l3_scenario(app) -> None:
         raise RuntimeError("Timed out seeding L3 E2E scenario")
 
 
-def _l3_metric_text(stats_panel, label: str) -> str:
-    """Read the bold value under an L3 metric label."""
+def _l3_metric_locator(stats_panel, label: str):
+    """Bold value paragraph directly under an L3 metric label."""
     label_span = stats_panel.locator("span.text-gray-400", has_text=label)
-    return label_span.locator("xpath=following-sibling::p[1]").inner_text()
+    return label_span.locator("xpath=following-sibling::p[1]")
 
 
-def _assert_l3_metric(stats_panel, label: str, expected: str) -> None:
-    assert _l3_metric_text(stats_panel, label) == expected
+def _wait_l3_metric(stats_panel, label: str, expected: str, timeout: float = 15_000) -> None:
+    expect(_l3_metric_locator(stats_panel, label)).to_have_text(expected, timeout=timeout)
 
 
 class TestStatsL3Panel:
@@ -111,9 +111,9 @@ class TestStatsL3Panel:
         automation_pct = f"{round(l3['automation_rate'] * 100)}%"
         expect(stats_panel.get_by_text(automation_pct).first).to_be_visible(timeout=15_000)
 
-        _assert_l3_metric(stats_panel, "Manual Interventions", str(l3["human_interventions"]))
-        _assert_l3_metric(stats_panel, "Approvals", str(l3["approvals"]))
+        _wait_l3_metric(stats_panel, "Manual Interventions", str(l3["human_interventions"]))
+        _wait_l3_metric(stats_panel, "Approvals", str(l3["approvals"]))
 
         if l3["message_to_completion_ms"] is not None:
             expected_duration = _format_duration_ms(l3["message_to_completion_ms"])
-            _assert_l3_metric(stats_panel, "Message to Completion", expected_duration)
+            _wait_l3_metric(stats_panel, "Message to Completion", expected_duration)
