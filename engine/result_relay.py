@@ -161,6 +161,7 @@ class ResultRelay:
             "可用 MCP 工具: mcp__teamchat__update_task, mcp__teamchat__create_task, mcp__teamchat__list_tasks, mcp__teamchat__get_task, mcp__teamchat__dag_summary, mcp__teamchat__task_tree",
             "注意：你只做审核和任务编排，不要自己执行开发任务。",
             "禁止执行任何 git 命令（checkout/branch/reset/switch/commit/push 等）— 共享工作区，git 操作由人工统一管理。",
+            "测试必须隔离数据库：跑测试用 tmp_path 独立目录，禁止写入真实 .teamchat/teamchat.db。",
         ])
         return "\n".join(parts)
 

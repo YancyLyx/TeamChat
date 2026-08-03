@@ -78,7 +78,7 @@ class TestTaskScheduler:
         result_relay.relay.assert_awaited_once()
 
     async def test_dispatch_calls_spawn_and_relay(self, task_table, mock_runner):
-        task = task_table.create(agent="coco咪", title="t", description="d")
+        task = task_table.create(agent="coco咪", title="t", description="implement feature and verify result")
         mock_runner._run.return_value = _make_result()
         result_relay = AsyncMock()
         router = MagicMock()
@@ -96,7 +96,7 @@ class TestTaskScheduler:
         store.log.assert_called_once()  # agent_calls logged
 
     async def test_dispatch_unknown_agent_marks_failed(self, task_table, mock_runner):
-        task = task_table.create(agent="unknown咪", title="t", description="d")
+        task = task_table.create(agent="unknown咪", title="t", description="implement feature and verify result")
         result_relay = AsyncMock()
         router = MagicMock()
         store = MagicMock()
@@ -114,7 +114,7 @@ class TestTaskScheduler:
 
     async def test_dispatch_spawn_error_still_relays(self, task_table, mock_runner):
         """If spawn throws, Engine builds an error result and still hands to cici咪."""
-        task = task_table.create(agent="coco咪", title="t", description="d")
+        task = task_table.create(agent="coco咪", title="t", description="implement feature and verify result")
         mock_runner._run.side_effect = RuntimeError("boom")
         result_relay = AsyncMock()
         router = MagicMock()
@@ -135,7 +135,7 @@ class TestTaskScheduler:
         """First failure is retried; success on second attempt reaches cici咪 with retries=1."""
         import engine.task_scheduler as ts
         monkeypatch.setattr(ts, "RETRY_DELAYS", (0, 0, 0))
-        task = task_table.create(agent="coco咪", title="t", description="d")
+        task = task_table.create(agent="coco咪", title="t", description="implement feature and verify result")
         mock_runner._run.side_effect = [
             _make_result(exit_code=1, output="fail once"),
             _make_result(exit_code=0, output="ok"),
@@ -160,7 +160,7 @@ class TestTaskScheduler:
         """After MAX_RETRIES failures, the final failed result still reaches cici咪."""
         import engine.task_scheduler as ts
         monkeypatch.setattr(ts, "RETRY_DELAYS", (0, 0, 0))
-        task = task_table.create(agent="coco咪", title="t", description="d")
+        task = task_table.create(agent="coco咪", title="t", description="implement feature and verify result")
         mock_runner._run.return_value = _make_result(exit_code=1, output="always fails")
         result_relay = AsyncMock()
         router = MagicMock()
@@ -182,7 +182,7 @@ class TestTaskScheduler:
         """Phase 4.5: 重试耗尽后任务记录 retry_count + last_error（cici咪 决策依据）。"""
         import engine.task_scheduler as ts
         monkeypatch.setattr(ts, "RETRY_DELAYS", (0, 0, 0))
-        task = task_table.create(agent="coco咪", title="t", description="d")
+        task = task_table.create(agent="coco咪", title="t", description="implement feature and verify result")
         mock_runner._run.return_value = _make_result(exit_code=1, output="always broken")
         result_relay = AsyncMock()
         router = MagicMock()
@@ -203,7 +203,7 @@ class TestTaskScheduler:
         """soso咪 Bug 1: relay 前刷新 task，last_error 在生产路径可见。"""
         import engine.task_scheduler as ts
         monkeypatch.setattr(ts, "RETRY_DELAYS", (0, 0, 0))
-        task = task_table.create(agent="coco咪", title="t", description="d")
+        task = task_table.create(agent="coco咪", title="t", description="implement feature and verify result")
         mock_runner._run.return_value = _make_result(exit_code=1, output="boom error")
         result_relay = AsyncMock()
         router = MagicMock()
@@ -221,7 +221,7 @@ class TestTaskScheduler:
 
     async def test_reassigned_task_dispatches_to_new_agent(self, task_table, mock_runner):
         """soso咪 备注4: 转派后（agent 改）TaskScheduler 派发给新 agent。"""
-        task = task_table.create(agent="coco咪", title="t", description="d")
+        task = task_table.create(agent="coco咪", title="t", description="implement feature and verify result")
         task_table.update(task.id, agent="soso咪", status="pending")  # cici咪 转派
 
         unblocked = task_table.unblocked_tasks()
@@ -246,7 +246,7 @@ class TestTaskScheduler:
         """Every retried attempt is written to agent_calls (soso咪 备注, PR #95)."""
         import engine.task_scheduler as ts
         monkeypatch.setattr(ts, "RETRY_DELAYS", (0, 0, 0))
-        task = task_table.create(agent="coco咪", title="t", description="d")
+        task = task_table.create(agent="coco咪", title="t", description="implement feature and verify result")
         mock_runner._run.side_effect = [
             _make_result(exit_code=1, output="fail 1"),
             _make_result(exit_code=1, output="fail 2"),
@@ -280,7 +280,7 @@ class TestTaskScheduler:
             mock_runner, MagicMock(), task_table, MagicMock(), MagicMock(),
             AsyncMock(), ws_manager=ws_manager,
         )
-        task = task_table.create(agent="coco咪", title="t", description="d")
+        task = task_table.create(agent="coco咪", title="t", description="implement feature and verify result")
 
         # first pass: baseline only, no broadcast
         await scheduler._broadcast_task_changes()
@@ -303,7 +303,7 @@ class TestTaskScheduler:
 
     async def test_cici_task_auto_done(self, task_table, mock_runner):
         """cici咪 执行型任务完成后自动 done（无需审核自己，否则卡 running）。"""
-        task = task_table.create(agent="cici咪", title="引擎修复", description="d")
+        task = task_table.create(agent="cici咪", title="引擎修复", description="implement feature and verify result")
         mock_runner._run.return_value = _make_result(agent_name="cici咪")
         result_relay = AsyncMock()
         router = MagicMock()
@@ -321,7 +321,7 @@ class TestTaskScheduler:
         result_relay.relay.assert_not_called()  # 不审核自己
 
     async def test_cici_task_failure_marks_failed(self, task_table, mock_runner):
-        task = task_table.create(agent="cici咪", title="t", description="d")
+        task = task_table.create(agent="cici咪", title="t", description="implement feature and verify result")
         mock_runner._run.return_value = _make_result(agent_name="cici咪", exit_code=1)
         result_relay = AsyncMock()
         router = MagicMock()
@@ -337,6 +337,53 @@ class TestTaskScheduler:
         assert task_table.get(task.id).status == "failed"
 
 
+    async def test_dispatch_logs_result_tool_calls(self, task_table, mock_runner):
+        """#28 — result.tool_calls must flow into store.log (agent_calls)."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from engine.runner import AgentResult
+        from engine.task_scheduler import TaskScheduler
+
+        task = task_table.create(agent="coco咪", title="t", description="implement feature and verify result")
+        result = AgentResult(
+            agent_name="coco咪", task_prompt="x", output="done", exit_code=0,
+            duration_ms=100, started_at="s", finished_at="f",
+            tool_calls=[{"name": "mcp__teamchat__create_task", "input": {"agent": "soso咪"}}],
+        )
+        mock_runner._run.return_value = result
+        result_relay = AsyncMock()
+        router = MagicMock()
+        router.is_busy.return_value = False
+        store = MagicMock()
+        session_store = MagicMock()
+        session_store.get_agent_session_id.return_value = "sid"
+
+        scheduler = TaskScheduler(
+            mock_runner, router, task_table, session_store, store, result_relay,
+        )
+        await scheduler._dispatch(task)
+
+        kwargs = store.log.call_args_list[-1].kwargs
+        assert kwargs["tool_calls"] == result.tool_calls
+
+
+    async def test_dispatch_logs_tool_calls(self, task_table, mock_runner):
+        """#28 — AgentResult.tool_calls flow into store.log → agent_calls."""
+        task = task_table.create(agent="coco咪", title="t", description="implement feature and verify result")
+        result = _make_result()
+        result.tool_calls = [{"name": "create_task", "input": {"title": "x"}}]
+        mock_runner._run.return_value = result
+        result_relay = AsyncMock()
+        store = MagicMock()
+        scheduler = TaskScheduler(
+            mock_runner, MagicMock(), task_table, MagicMock(), store, result_relay,
+        )
+        await scheduler._dispatch(task)
+        store.log.assert_called()
+        logged = store.log.call_args.kwargs
+        assert logged.get("tool_calls") == result.tool_calls
+
+
 class TestDeferredDispatch:
     """cici咪 busy 期间创建的任务延迟派发（用户报告的顺序问题）。"""
 
@@ -346,7 +393,7 @@ class TestDeferredDispatch:
         )
 
     def test_defer_when_created_during_cici_busy(self, task_table):
-        task = task_table.create(agent="coco咪", title="t", description="d")
+        task = task_table.create(agent="coco咪", title="t", description="implement feature and verify result")
         router = MagicMock()
 
         def is_busy(agent):
@@ -358,7 +405,7 @@ class TestDeferredDispatch:
         assert scheduler._should_defer(task) is True
 
     def test_no_defer_when_cici_free(self, task_table):
-        task = task_table.create(agent="coco咪", title="t", description="d")
+        task = task_table.create(agent="coco咪", title="t", description="implement feature and verify result")
         router = MagicMock()
         router.is_busy.return_value = False
 
@@ -366,7 +413,7 @@ class TestDeferredDispatch:
         assert scheduler._should_defer(task) is False
 
     def test_no_defer_for_cici_own_task(self, task_table):
-        task = task_table.create(agent="cici咪", title="t", description="d")
+        task = task_table.create(agent="cici咪", title="t", description="implement feature and verify result")
         router = MagicMock()
         router.is_busy.return_value = True  # cici咪 busy
 
@@ -384,7 +431,7 @@ class TestResultRelay:
         session_store = MagicMock()
 
         relay = ResultRelay(mock_runner, router, session_store, task_table)
-        task = task_table.create(agent="coco咪", title="t", description="d")
+        task = task_table.create(agent="coco咪", title="t", description="implement feature and verify result")
 
         await relay.relay(task, _make_result())
 
@@ -399,7 +446,7 @@ class TestResultRelay:
         mock_runner._run.return_value = _make_result(agent_name="cici咪", output="审核通过")
 
         relay = ResultRelay(mock_runner, router, session_store, task_table)
-        task = task_table.create(agent="coco咪", title="t", description="d")
+        task = task_table.create(agent="coco咪", title="t", description="implement feature and verify result")
 
         await relay.relay(task, _make_result())
 
@@ -413,7 +460,7 @@ class TestResultRelay:
         session_store = MagicMock()
 
         relay = ResultRelay(mock_runner, router, session_store, task_table)
-        task = task_table.create(agent="cici咪", title="cici task", description="d")
+        task = task_table.create(agent="cici咪", title="cici task", description="implement feature and verify result")
 
         await relay.relay(task, _make_result(agent_name="cici咪"))
 
@@ -429,8 +476,8 @@ class TestResultRelay:
         mock_runner._run.return_value = _make_result(agent_name="cici咪", output="ok")
 
         relay = ResultRelay(mock_runner, router, session_store, task_table)
-        t1 = task_table.create(agent="coco咪", title="t1", description="d")
-        t2 = task_table.create(agent="soso咪", title="t2", description="d")
+        t1 = task_table.create(agent="coco咪", title="t1", description="implement feature and verify result")
+        t2 = task_table.create(agent="soso咪", title="t2", description="implement feature and verify result")
 
         await relay.relay(t1, _make_result(agent_name="coco咪"))
         await relay.relay(t2, _make_result(agent_name="soso咪"))
@@ -445,7 +492,7 @@ class TestResultRelay:
 
     def test_build_review_prompt_includes_mcp_instructions(self, task_table):
         relay = ResultRelay(MagicMock(), MagicMock(), MagicMock(), task_table)
-        task = task_table.create(agent="coco咪", title="加刷新按钮", description="d")
+        task = task_table.create(agent="coco咪", title="加刷新按钮", description="implement feature and verify result")
         result = _make_result(output="按钮已添加")
 
         prompt = relay._build_review_prompt([(task, result, 0)])
@@ -464,7 +511,7 @@ class TestResultRelay:
         mock_runner._run.side_effect = RuntimeError("review spawn boom")
 
         relay = ResultRelay(mock_runner, router, session_store, task_table)
-        task = task_table.create(agent="coco咪", title="t", description="d")
+        task = task_table.create(agent="coco咪", title="t", description="implement feature and verify result")
 
         await relay.relay(task, _make_result())
 
@@ -475,7 +522,7 @@ class TestResultRelay:
     def test_build_review_prompt_includes_healing_options(self, task_table):
         """Phase 4.5: 失败任务的审核 prompt 含三选项（重试/转派/放弃）+ last_error。"""
         relay = ResultRelay(MagicMock(), MagicMock(), MagicMock(), task_table)
-        task = task_table.create(agent="coco咪", title="t", description="d")
+        task = task_table.create(agent="coco咪", title="t", description="implement feature and verify result")
         task_table.update(task.id, retry_count=3, last_error="network timeout")
         task = task_table.get(task.id)  # 重新读取（含 last_error）
         result = _make_result(output="error", exit_code=1)
@@ -488,7 +535,7 @@ class TestResultRelay:
 
     def test_build_review_prompt_marks_failed_result(self, task_table):
         relay = ResultRelay(MagicMock(), MagicMock(), MagicMock(), task_table)
-        task = task_table.create(agent="coco咪", title="t", description="d")
+        task = task_table.create(agent="coco咪", title="t", description="implement feature and verify result")
         result = _make_result(output="error", exit_code=1)
 
         prompt = relay._build_review_prompt([(task, result, 3)])

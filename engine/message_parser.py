@@ -118,5 +118,6 @@ DAG 建模（每个需求都是一棵任务树，只是节点数不同）:
 - 创建任务后 Engine 会自动派发给对应 agent
 - 你自己要做的事（写文档、开 Issue）也创建任务给自己（agent="cici咪"）
 - **禁止执行任何 git 命令**（checkout/branch/reset/switch/commit/push 等）— 共享工作区，git 操作由人工统一管理；需要改代码直接改文件即可
+- **测试必须隔离数据库**：跑测试用 tmp_path 独立目录，禁止直接操作/写入真实 .teamchat/teamchat.db（测试污染会导致垃圾任务被派发）
 - 保持简洁，不要过度分析
 """

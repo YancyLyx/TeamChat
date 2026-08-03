@@ -28,6 +28,7 @@ POLL_INTERVAL = 2.0  # seconds
 DEFAULT_TIMEOUT = 300
 MAX_RETRIES = 3  # transient failure retries (ADR-003 C6)
 RETRY_DELAYS = (1, 2, 4)  # exponential backoff in seconds
+MIN_PROMPT_LENGTH = 3  # 防测试污染：description ≤2 字符（如 "a"/"d"）不派发；中文短 prompt（"实现按钮"=4）不受影响
 
 
 class TaskScheduler:
@@ -109,6 +110,7 @@ class TaskScheduler:
                 agent_name=agent.name, prompt=agent_task.full_prompt(),
                 output=result.output, exit_code=result.exit_code,
                 duration_ms=result.duration_ms, token_usage=result.token_usage,
+                tool_calls=result.tool_calls,
                 task_type="scheduled_task_retry",
                 teamchat_session_id=task.teamchat_session_id,
                 started_at=result.started_at, finished_at=result.finished_at,
@@ -133,6 +135,20 @@ class TaskScheduler:
             self.task_table.update(
                 task.id, status="failed",
                 output_summary=f"Unknown agent: {task.agent}",
+            )
+            return
+
+        # 防异常任务：description 过短（<5 字符，如测试垃圾任务 "a"/"d"）不派发
+        # （soso咪 测试污染 DB 事件后加的防护，避免 agent 收到无意义 prompt）
+        prompt_text = (task.description or "").strip()
+        if len(prompt_text) < MIN_PROMPT_LENGTH:
+            logger.warning(
+                f"⚠️ Task #{task.id} description 过短 ({len(prompt_text)} 字符)，"
+                f"疑似测试污染，不派发 → abandoned"
+            )
+            self.task_table.update(
+                task.id, status="abandoned",
+                output_summary="Description too short — possible test pollution, not dispatched",
             )
             return
 
@@ -165,6 +181,7 @@ class TaskScheduler:
             agent_name=agent.name, prompt=task.description or task.title,
             output=result.output, exit_code=result.exit_code,
             duration_ms=result.duration_ms, token_usage=result.token_usage,
+            tool_calls=result.tool_calls,
             task_type="scheduled_task",
             teamchat_session_id=task.teamchat_session_id,
             started_at=result.started_at, finished_at=result.finished_at,
