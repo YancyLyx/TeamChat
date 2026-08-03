@@ -23,6 +23,12 @@ Phase: ADR-005 Phase 4.0 **端到端验证通过**（2026-08-01 本地）。协�
 4. **前端同步依赖 WS 广播** — 任务状态变化（done/abandoned）前端可能延迟显示，原因：MCP 跨进程写库不广播（已修 watchdog）+ 旧进程不加载。
 5. **"失败任务显示"区分** — failed 可能是 cici咪 审核判定（早退未落盘）而非 exit_code 失败，前端显示"执行失败"易误导。
 
+### 测试污染 agent_calls（2026-08-03 事件 + 清理）
+
+**事件**：soso咪 #33 测试污染**真实 agent_calls**（1326 mock 输出 + 230 approval 模拟 + e2e_seed），导致 L1 显示 coco咪 1530 tasks、聊天历史被 mock 挤占。
+**清理**：删除 mock/e2e_seed/approval 记录（保留真实 chat_message/chat_analysis/scheduled_task，历史完整恢复）。
+**防护缺口**：防污染只覆盖 task_table（TaskScheduler 拒短 description），**e2e 测试的 store.log 未隔离**——需补：conftest e2e_servers 的 store 也用 e2e_root（tmp_path），禁止写真实 DB。
+
 ### Tasks 面板待改进（用户要求，2026-08-03）
 
 - Done 列表倒序（最新在前）+ 默认显示 5 个 + 折叠展开全部
