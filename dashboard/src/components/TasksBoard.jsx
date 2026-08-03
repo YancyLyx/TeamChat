@@ -7,7 +7,10 @@ const GROUPS = [
   { key: 'pending', label: 'Pending', icon: UI_EMOJI.clipboard, color: 'text-gray-600' },
   { key: 'done', label: 'Done', icon: UI_EMOJI.check, color: 'text-green-600' },
   { key: 'failed', label: 'Failed', icon: UI_EMOJI.cross, color: 'text-red-600' },
+  { key: 'abandoned', label: '已放弃', icon: UI_EMOJI.warning, color: 'text-gray-400' },
 ]
+
+const DONE_SHOW_LIMIT = 5  // Done 列表默认显示数量（用户要求）
 
 const STATUS_ICON = {
   running: UI_EMOJI.refresh,
@@ -33,8 +36,13 @@ function groupTasks(tasks, byId) {
       if (isBlocked(task, byId)) groups.waiting.push(task)
       else groups.pending.push(task)
     } else if (task.status === 'done') groups.done.push(task)
-    else if (task.status === 'failed' || task.status === 'abandoned') groups.failed.push(task)
+    else if (task.status === 'failed') groups.failed.push(task)
+    else if (task.status === 'abandoned') groups.abandoned.push(task)
   }
+  // Done 倒序（最新在前，用户要求）；Failed/已放弃 也倒序（最新问题最显眼）
+  groups.done.sort((a, b) => b.id - a.id)
+  groups.failed.sort((a, b) => b.id - a.id)
+  groups.abandoned.sort((a, b) => b.id - a.id)
   return groups
 }
 
@@ -149,6 +157,8 @@ export default function TasksBoard({ tasks = [], sessionId = null, onUpdateTask 
   const [error, setError] = useState(null)
   const [reassignFor, setReassignFor] = useState(null)
   const [reassignTarget, setReassignTarget] = useState('coco咪')
+  const [doneExpanded, setDoneExpanded] = useState(false)
+  const [abandonedExpanded, setAbandonedExpanded] = useState(false)
 
   const byId = useMemo(() => Object.fromEntries(tasks.map((t) => [t.id, t])), [tasks])
   const filtered = useMemo(() => tasks.filter((t) => (
@@ -205,6 +215,13 @@ export default function TasksBoard({ tasks = [], sessionId = null, onUpdateTask 
         GROUPS.map((group) => {
           const items = groups[group.key] || []
           if (items.length === 0) return null
+          // Done 默认显示 5 个（用户要求），可展开全部；已放弃默认折叠
+          const collapsed = group.key === 'done'
+            ? !doneExpanded && items.length > DONE_SHOW_LIMIT
+            : group.key === 'abandoned' ? !abandonedExpanded : false
+          const shown = group.key === 'done' && !doneExpanded
+            ? items.slice(0, DONE_SHOW_LIMIT)
+            : items
           return (
             <div key={group.key} data-testid={`tasks-group-${group.key}`}>
               <div className="flex items-center gap-1.5 px-0.5 pb-1">
@@ -213,7 +230,7 @@ export default function TasksBoard({ tasks = [], sessionId = null, onUpdateTask 
                 <span className="ml-auto text-[10px] text-gray-400 font-mono">{items.length}</span>
               </div>
               <div className="space-y-1.5">
-                {items.map((task) => (
+                {shown.map((task) => (
                   <TaskCard
                     key={task.id}
                     task={task}
@@ -228,6 +245,22 @@ export default function TasksBoard({ tasks = [], sessionId = null, onUpdateTask 
                   />
                 ))}
               </div>
+              {group.key === 'done' && items.length > DONE_SHOW_LIMIT && (
+                <button
+                  onClick={() => setDoneExpanded(!doneExpanded)}
+                  className="text-[10px] text-blue-500 hover:text-blue-700 mt-1 px-0.5"
+                >
+                  {doneExpanded ? '▲ 折叠' : `▼ 展开全部 (${items.length})`}
+                </button>
+              )}
+              {group.key === 'abandoned' && items.length > 0 && (
+                <button
+                  onClick={() => setAbandonedExpanded(!abandonedExpanded)}
+                  className="text-[10px] text-gray-400 hover:text-gray-600 mt-1 px-0.5"
+                >
+                  {abandonedExpanded ? '▲ 折叠' : `▼ 展开 (${items.length})`}
+                </button>
+              )}
             </div>
           )
         })

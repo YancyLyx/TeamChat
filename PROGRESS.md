@@ -8,9 +8,25 @@ Phase: ADR-005 Phase 4.0 **端到端验证通过**（2026-08-01 本地）。协�
 
 **2026-08-03 新增：** Tasks 看板本地实现完成（coco咪）：右侧栏默认展示、Running/Waiting/Pending/Done/Failed 分组、依赖标签、失败重试/转派/放弃、按 agent 筛选、`task_table` 创建/更新 WebSocket 实时刷新（#16→#19→#17→#23 链路）。
 
-**⚠️ 2026-08-03 阻塞项（#18 收尾记录）：**
-- P2 遗留：Failed 卡片无 retry 信息时缺「执行失败」文案（TasksBoard.jsx:83 guard 未移除，TestErrorState 失败）。coco咪 会话连续 3 次（#16 二轮/#21/#24）9-36 秒早退不落盘 → **已转派 soso咪 #25 修复**；**引擎诊断 #26（cici咪）**：codex 会话早退根因（session_store/dispatch/resume 路径）。
-- P2 可选：@mention busy 排队建任务走 watchdog 2s 延迟广播（已接受，不追任务）。
+**✅ 2026-08-03 阻塞项已全部解决（#18 收尾确认）：**
+- P2 Failed 文案：guard 已移除（#25 soso咪 转派落地），TestErrorState 通过 ✅
+- **coco咪 codex 会话早退根因（#26）**：线程 019fbc3b 反复 resume 膨胀至 ~6M input tokens（≥3.5M 后模型只回计划即退）→ 已修复：dispatch.py 加 codex 会话轮换（8 次 resume 自动冷启动，仅 codex）+ session 2 codex_id 已立即重置（下次任务冷启动新线程）；**需重启引擎进程使轮换代码生效**
+- P2 可选：@mention busy 排队建任务走 watchdog 2s 延迟广播（已接受，不追任务）
+
+## 📋 复盘教训（2026-08-03 Tasks 看板开发，用户要求记录）
+
+1. **标记 done 前必须验证改动落盘**（git diff / 文件 mtime）— 本轮我手动标记 #20/#21/#24 done 未验证，cici咪 收尾抓出"连续三次宣布→早退→被标记 done"，掩盖了 codex 早退 3 次。**教训：Engine 进程（人工或 cici咪）标记 done 前先核对文件变化。**
+2. **改引擎代码后必须重启进程** — cici咪 #26 修复轮换逻辑落盘，但运行中的 uvicorn 是旧代码（无自动 done/轮换），导致 #26 卡 running。**教训：引擎改动后重启生效。**
+3. **agent 会话要轮换** — codex 单线程长期复用会膨胀（3.1M→6M tokens）导致幻觉完成/早退。已修（8 次轮换）。
+4. **前端同步依赖 WS 广播** — 任务状态变化（done/abandoned）前端可能延迟显示，原因：MCP 跨进程写库不广播（已修 watchdog）+ 旧进程不加载。
+5. **"失败任务显示"区分** — failed 可能是 cici咪 审核判定（早退未落盘）而非 exit_code 失败，前端显示"执行失败"易误导。
+
+### Tasks 面板待改进（用户要求，2026-08-03）
+
+- Done 列表倒序（最新在前）+ 默认显示 5 个 + 折叠展开全部
+- Failed 列表：转派后的原任务（如 #21 → #25）应从 Failed 移除/标记"已转派"
+- 失败按钮（重试/转派/放弃）是**用户兜底/手动干预**功能：自动链路（引擎重试→cici咪 审核三选项）正常时用不到；场景：cici咪 审核未触发/用户主动干预/不同意 cici咪 判定
+- #8 放弃按钮"没响应"待排查（数据库已 abandoned，前端未即时刷新）
 
 ## ⚠️ 阻塞
 
