@@ -28,12 +28,13 @@ REVIEW_TIMEOUT = 180
 class ResultRelay:
     """Routes agent results to cici咪 for review, with queuing when cici咪 is busy."""
 
-    def __init__(self, runner, router, session_store, task_table, ws_manager=None):
+    def __init__(self, runner, router, session_store, task_table, ws_manager=None, store=None):
         self.runner = runner
         self.router = router
         self.session_store = session_store
         self.task_table = task_table
         self.ws_manager = ws_manager
+        self.store = store  # AgentCallStore（审核输出落库，刷新不丢）
         self._pending: list[tuple[Task, AgentResult, int]] = []
         self._reviewing = False
 
@@ -110,6 +111,16 @@ class ResultRelay:
         fixed = fix_new_task_sessions(self.task_table, tasks_before, target_session)
         if fixed:
             logger.info(f"🔧 Fixed {fixed} review-created task(s) session → {target_session}")
+        # 落库：cici咪 审核输出持久化（否则刷新后丢失——用户报告）
+        if self.store:
+            self.store.log(
+                agent_name="cici咪", prompt=review_task.full_prompt(),
+                output=result.output, exit_code=result.exit_code,
+                duration_ms=result.duration_ms, token_usage=result.token_usage,
+                task_type="chat_review", tag="prod",
+                teamchat_session_id=target_session,
+                started_at=result.started_at, finished_at=result.finished_at,
+            )
         await self._broadcast({
             "type": "chat_message",
             "data": {"kind": "agent_reply", "agent": "cici咪",

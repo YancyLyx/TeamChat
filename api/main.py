@@ -144,7 +144,8 @@ async def lifespan(app: FastAPI):
     bus.subscribe("all", on_bus_message)
 
     # Task Scheduler — background loop that dispatches unblocked tasks (ADR-003 中枢模式)
-    result_relay = ResultRelay(runner, router_inst, session_store, task_table, ws_manager=manager)
+    result_relay = ResultRelay(runner, router_inst, session_store, task_table,
+                               ws_manager=manager, store=store)
     scheduler = TaskScheduler(
         runner, router_inst, task_table, session_store, store, result_relay, ws_manager=manager,
     )
