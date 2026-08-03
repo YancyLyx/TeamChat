@@ -138,8 +138,9 @@ class TaskScheduler:
             )
             return
 
-        # 防异常任务：description 过短（<5 字符，如测试垃圾任务 "a"/"d"）不派发
-        # （soso咪 测试污染 DB 事件后加的防护，避免 agent 收到无意义 prompt）
+        # 防异常任务：description ≤2 字符（如测试垃圾任务 "a"/"d"）不派发
+        # （soso咪 测试污染 DB 事件后加的防护，避免 agent 收到无意义 prompt；
+        #   中文短 prompt 如"实现按钮"=4 字符不受影响）
         prompt_text = (task.description or "").strip()
         if len(prompt_text) < MIN_PROMPT_LENGTH:
             logger.warning(

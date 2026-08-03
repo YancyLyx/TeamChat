@@ -542,3 +542,41 @@ class TestResultRelay:
 
         assert "失败" in prompt
         assert "重试 3 次" in prompt  # retry info surfaced to cici咪
+
+
+class TestPollutionGuard:
+    """防测试污染：description ≤2 字符的任务不派发（soso咪 备注3 补单测）。"""
+
+    async def test_short_description_not_dispatched(self, task_table, mock_runner):
+        task = task_table.create(agent="coco咪", title="t", description="d")
+        result_relay = AsyncMock()
+        router = MagicMock()
+        store = MagicMock()
+        session_store = MagicMock()
+
+        scheduler = TaskScheduler(
+            mock_runner, router, task_table, session_store, store, result_relay,
+        )
+        await scheduler._dispatch(task)
+
+        assert task_table.get(task.id).status == "abandoned"
+        mock_runner._run.assert_not_called()  # 不 spawn
+        result_relay.relay.assert_not_called()  # 不 relay
+
+    async def test_chinese_short_prompt_not_blocked(self, task_table, mock_runner):
+        """中文短 prompt（'实现按钮'=4 字符）正常派发（soso咪 备注2）。"""
+        task = task_table.create(agent="coco咪", title="t", description="实现按钮")
+        mock_runner._run.return_value = _make_result()
+        result_relay = AsyncMock()
+        router = MagicMock()
+        store = MagicMock()
+        session_store = MagicMock()
+        session_store.get_agent_session_id.return_value = "sid"
+
+        scheduler = TaskScheduler(
+            mock_runner, router, task_table, session_store, store, result_relay,
+        )
+        await scheduler._dispatch(task)
+
+        assert task_table.get(task.id).status == "running"  # 正常派发
+        mock_runner._run.assert_awaited_once()
