@@ -288,9 +288,12 @@ async def engine_status(request: Request):
         for a in ALL_AGENTS
     ]
 
+    # queue = 等待 cici咪 审核的排队结果数（ResultRelay._pending）
+    # 之前读 orchestrator._queue（旧队列无人用）→ 恒 0，修正数据源
     queue_length = 0
-    if hasattr(orchestrator, "_queue"):
-        queue_length = len(orchestrator._queue)
+    relay = getattr(request.app.state, "result_relay", None)
+    if relay and hasattr(relay, "_pending"):
+        queue_length = len(relay._pending)
 
     # Default mode: parallel. Orchestrator can toggle when cici咪 is busy.
     mode = "serial" if orchestrator.is_cici_busy() else "parallel"

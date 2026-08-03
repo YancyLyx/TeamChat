@@ -133,13 +133,9 @@ export default function StatsPanel({ agentMetrics = {}, l3Stats = null, sessionI
           ) : (
             <>
               <div className="bg-gray-50 rounded-lg p-2.5 space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-gray-400 font-semibold uppercase">Engine Mode</span>
-                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold ${engine?.mode === 'serial' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
-                    {engine?.mode === 'serial' ? 'Serial' : 'Parallel'}
-                  </span>
-                </div>
-                <p className="text-[10px] text-gray-400 font-mono">queue: {engine?.queue_length ?? 0}</p>
+                <p className="text-[10px] text-gray-400 font-mono">
+                  queue（待审核结果）: {engine?.queue_length ?? 0}
+                </p>
               </div>
               <div className="bg-gray-50 rounded-lg p-2.5 space-y-1.5">
                 <p className="text-[10px] text-gray-400 font-semibold uppercase">Task Stats</p>
