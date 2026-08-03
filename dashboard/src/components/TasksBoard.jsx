@@ -46,7 +46,7 @@ function groupTasks(tasks, byId) {
   return groups
 }
 
-function TaskCard({ task, byId, busy, onAction, reassignFor, reassignTarget, onStartReassign, onReassignTargetChange, onCancelReassign }) {
+function TaskCard({ task, byId, busy, onAction, reassignFor, reassignTarget, onStartReassign, onReassignTargetChange, onCancelReassign, readOnly = false }) {
   const waitingDeps = (task.depends_on || []).filter((depId) => {
     const dep = byId[depId]
     return !dep || dep.status !== 'done'
@@ -92,6 +92,8 @@ function TaskCard({ task, byId, busy, onAction, reassignFor, reassignTarget, onS
                 {task.retry_count > 0 ? `重试 ${task.retry_count} 次` : '执行失败'}
                 {task.last_error ? `: ${task.last_error}` : ''}
               </p>
+              {/* readOnly（已放弃）不显示操作按钮 */}
+              {!readOnly && (
               <div className="flex flex-wrap gap-1.5">
                 {reassignFor === task.id ? (
                   <>
@@ -143,6 +145,7 @@ function TaskCard({ task, byId, busy, onAction, reassignFor, reassignTarget, onS
                   </>
                 )}
               </div>
+              )}
             </div>
           )}
         </div>
@@ -242,6 +245,7 @@ export default function TasksBoard({ tasks = [], sessionId = null, onUpdateTask 
                     onStartReassign={startReassign}
                     onReassignTargetChange={setReassignTarget}
                     onCancelReassign={() => setReassignFor(null)}
+                    readOnly={group.key === 'abandoned'}
                   />
                 ))}
               </div>
