@@ -31,6 +31,7 @@ export default function App() {
  const [liveEvents, setLiveEvents] = useState([])
   const liveEventsDedup = useRef(new Map())
   const [agentMetrics, setAgentMetrics] = useState({})
+  const [l3Stats, setL3Stats] = useState(null)
 
   const fetchData = useCallback(async () => {
     try {
@@ -50,6 +51,7 @@ export default function App() {
       const busyMap = {}
       for (const a of engineData.active_agents || []) { busyMap[a.name] = a.is_busy }
       setAgentMetrics(normalizeAgentMetrics(st, sd))
+      setL3Stats(st.l3 ?? null)
       setAgents(ad.map((a) => ({
         ...a,
         is_busy: busyMap[a.name] ?? a.is_busy ?? false,
@@ -221,7 +223,7 @@ export default function App() {
                 <button onClick={() => setRightTab('stats')} className={`flex-1 text-xs py-2 font-medium transition-colors ${rightTab === 'stats' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'}`}>Stats</button>
                 <button onClick={() => setRightTab('live')} className={`flex-1 text-xs py-2 font-medium transition-colors ${rightTab === 'live' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'}`}>Live</button>
               </div>
-              {rightTab === 'tasks' ? <TasksBoard tasks={tasks} sessionId={activeSessionId} onUpdateTask={handleUpdateTask} /> : rightTab === 'stats' ? <StatsPanel agentMetrics={agentMetrics} /> : <LivePanel recentEvents={liveEvents} />}
+              {rightTab === 'tasks' ? <TasksBoard tasks={tasks} sessionId={activeSessionId} onUpdateTask={handleUpdateTask} /> : rightTab === 'stats' ? <StatsPanel agentMetrics={agentMetrics} l3Stats={l3Stats} /> : <LivePanel recentEvents={liveEvents} />}
             </>
           )}
         </aside>

@@ -27,3 +27,15 @@
 @keyframes slideIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
 .msg-animate { animation:slideIn 0.2s ease-out; }
 .hidden { display:none; }
+
+/* Chat bubble Markdown code blocks: wrap long lines instead of overflowing */
+.prose pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+.prose pre code {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}

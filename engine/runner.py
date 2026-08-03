@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import AsyncIterator
 
 from engine.config import ALL_AGENTS, AgentIdentity, Config
-from engine.codex_events import parse_codex_jsonl_output
+from engine.codex_events import collect_codex_tool_calls, parse_codex_jsonl_output
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +77,41 @@ def parse_cursor_jsonl_output(raw_output: str) -> str:
     cleaned = "\n".join(text_parts).strip()
     return cleaned
 
+
+def collect_cursor_tool_calls(raw_output: str) -> list[dict]:
+    """Collect tool_use items from Cursor stream-json stdout."""
+    calls: list[dict] = []
+    for line in raw_output.splitlines():
+        line = line.strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            raw = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(raw, dict):
+            continue
+        if raw.get("type") != "assistant":
+            continue
+        message = raw.get("message") or {}
+        for item in message.get("content") or []:
+            if isinstance(item, dict) and item.get("type") == "tool_use":
+                calls.append({
+                    "name": item.get("name", "?"),
+                    "input": _summarize_tool_input(item.get("input") or {}),
+                })
+    return calls
+
+
+def _summarize_tool_input(data: dict) -> dict:
+    """Cap tool input at ~300 chars of JSON for the tool_calls column."""
+    if not data:
+        return {}
+    s = json.dumps(data, ensure_ascii=False)
+    if len(s) <= 300:
+        return data
+    return {"preview": s[:300]}
+
 # ---- Data types ----
 
 
@@ -102,6 +137,7 @@ class AgentResult:
     exit_code: int
     duration_ms: int
     token_usage: dict = field(default_factory=dict)
+    tool_calls: list[dict] = field(default_factory=list)
     started_at: str = ""
     finished_at: str = ""
     cli_session_id: str = ""
@@ -349,6 +385,7 @@ class AgentRunner:
 
         # Parse stream-json / JSON output into clean text
         token_usage: dict = {}
+        tool_calls: list[dict] = []
         if agent.cli == "claude":
             text_parts = []
             # Handle stream-json (JSONL, one JSON object per line)
@@ -367,6 +404,10 @@ class AgentRunner:
                             text_parts.append(item.get("text", ""))
                         elif item.get("type") == "tool_use":
                             tname = item.get("name", "?")
+                            tool_calls.append({
+                                "name": tname,
+                                "input": _summarize_tool_input(item.get("input") or {}),
+                            })
                             if "teamchat" in tname or "mcp" in tname:
                                 logger.info(f"[Engine] 🔧 MCP tool: {tname}({json.dumps(item.get('input', {}), ensure_ascii=False)[:200]})")
                 elif etype == "result":
@@ -381,11 +422,16 @@ class AgentRunner:
             if text_parts:
                 output = "\n".join(text_parts)
         elif agent.cli == "codex":
+            tool_calls = [
+                {"name": c["name"], "input": _summarize_tool_input(c["input"])}
+                for c in collect_codex_tool_calls(output)
+            ]
             clean_output, usage, saw_json_event = parse_codex_jsonl_output(output)
             if saw_json_event:
                 output = clean_output
                 token_usage = usage
         elif agent.cli == "cursor":
+            tool_calls = collect_cursor_tool_calls(output)
             cleaned = parse_cursor_jsonl_output(output)
             if cleaned:
                 output = cleaned
@@ -397,6 +443,7 @@ class AgentRunner:
             exit_code=process.returncode or 0,
             duration_ms=duration_ms,
             token_usage=token_usage,
+            tool_calls=tool_calls,
             started_at=started_at.isoformat(),
             finished_at=finished_at.isoformat(),
             cli_session_id=cli_session_id,

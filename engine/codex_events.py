@@ -112,6 +112,32 @@ def extract_codex_agent_text(raw: dict[str, Any]) -> str:
     return ""
 
 
+def collect_codex_tool_calls(output: str) -> list[dict[str, Any]]:
+    """Collect tool-call items (tool_call / mcp_tool_call / command_execution)
+    from codex --json output, for the agent_calls.tool_calls column."""
+    calls: list[dict[str, Any]] = []
+    for line in output.splitlines():
+        line = line.strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            raw = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(raw, dict):
+            continue
+        item = raw.get("item")
+        if not isinstance(item, dict):
+            continue
+        if not is_codex_tool_call(item):
+            continue
+        calls.append({
+            "name": codex_tool_name(item),
+            "input": codex_tool_input(item),
+        })
+    return calls
+
+
 def parse_codex_jsonl_output(output: str) -> tuple[str, dict[str, Any], bool]:
     """
     Return clean assistant text, token usage, and whether JSONL events were seen.

@@ -130,6 +130,7 @@ async def submit_task(request: Request, task_req: TaskRequest):
             exit_code=result.exit_code,
             duration_ms=result.duration_ms,
             token_usage=result.token_usage,
+            tool_calls=result.tool_calls,
             task_type="api_task",
             tag="prod",
             started_at=result.started_at,

@@ -69,15 +69,24 @@ export function formatDuration(ms) {
   return `${(value / 3_600_000).toFixed(1)} h`
 }
 
-export function liberationMetrics({ agentMetrics = {}, summary = {}, taskStats = null, humanMessages = 0 } = {}) {
-  const automationRate = taskStats?.completion_rate != null
-    ? taskStats.completion_rate * 100
-    : (summary.success_rate || 0) * 100
-  const manualInterventions = humanMessages + Object.values(agentMetrics)
-    .reduce((sum, m) => sum + Number(m.tool_calls || 0), 0)
+export function liberationMetrics({ agentMetrics = {}, summary = {}, taskStats = null, humanMessages = 0, l3Stats = null } = {}) {
+  const automationRate = l3Stats?.automation_rate != null
+    ? l3Stats.automation_rate * 100
+    : taskStats?.completion_rate != null
+      ? taskStats.completion_rate * 100
+      : (summary.success_rate || 0) * 100
+  const manualInterventions = l3Stats?.human_interventions != null
+    ? l3Stats.human_interventions
+    : humanMessages + Object.values(agentMetrics)
+      .reduce((sum, m) => sum + Number(m.tool_calls || 0), 0)
+  const approvals = l3Stats?.approvals != null ? l3Stats.approvals : 0
+  const messageToCompletion = l3Stats?.message_to_completion_ms != null
+    ? formatDuration(l3Stats.message_to_completion_ms)
+    : formatDuration(summary.avg_cycle_ms)
   return {
     automation_rate: automationRate,
     manual_interventions: manualInterventions,
-    message_to_completion: formatDuration(summary.avg_cycle_ms),
+    approvals,
+    message_to_completion: messageToCompletion,
   }
 }

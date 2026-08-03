@@ -17,7 +17,7 @@ function Bar({ pct }) {
   )
 }
 
-export default function StatsPanel({ agentMetrics = {} }) {
+export default function StatsPanel({ agentMetrics = {}, l3Stats = null }) {
   const [subTab, setSubTab] = useState('L1')
   const [engine, setEngine] = useState(null)
   const [taskStats, setTaskStats] = useState(null)
@@ -26,7 +26,7 @@ export default function StatsPanel({ agentMetrics = {} }) {
   const [features, setFeatures] = useState([])
   const [featuresLoading, setFeaturesLoading] = useState(false)
   const summary = weeklySummary(agentMetrics)
-  const liberation = liberationMetrics({ agentMetrics, summary, taskStats, humanMessages })
+  const liberation = liberationMetrics({ agentMetrics, summary, taskStats, humanMessages, l3Stats })
 
   useEffect(() => {
     if (subTab !== 'L2') return
@@ -169,7 +169,11 @@ export default function StatsPanel({ agentMetrics = {} }) {
                           </span>
                           <span className="text-[10px] text-gray-400 font-mono">{f.total}节点 · {(f.completion_rate * 100).toFixed(0)}%</span>
                         </div>
-                        <DagGraph nodes={f.nodes || []} />
+                        {(f.nodes || []).length === 1 ? (
+                          <span className="text-[10px] font-mono text-gray-600">#{f.nodes[0].id} {f.nodes[0].title} · {f.nodes[0].status}</span>
+                        ) : (
+                          <DagGraph nodes={f.nodes || []} />
+                        )}
                         <div className="flex flex-wrap gap-x-2 text-[9px] text-gray-400 font-mono mt-0.5">
                           <span className="text-green-600">done {f.done}</span>
                           <span className="text-red-600">failed {f.failed}</span>
@@ -212,6 +216,7 @@ export default function StatsPanel({ agentMetrics = {} }) {
               <div><span className="text-gray-400">Automation Rate</span><div className="flex items-center gap-2 mt-0.5"><Bar pct={liberation.automation_rate} /><span className="text-xs font-bold text-gray-700 font-mono">{liberation.automation_rate.toFixed(0)}%</span></div></div>
               <div><span className="text-gray-400">Manual Interventions</span><p className="text-sm font-bold text-gray-700 mt-0.5">{liberation.manual_interventions}</p></div>
               <div><span className="text-gray-400">Message to Completion</span><p className="text-sm font-bold text-gray-700 mt-0.5">{liberation.message_to_completion}</p></div>
+              <div><span className="text-gray-400">Approvals</span><p className="text-sm font-bold text-gray-700 mt-0.5">{liberation.approvals}</p></div>
             </div>
           </div>
         </div>

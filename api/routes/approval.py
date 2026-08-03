@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("teamchat.engine")
@@ -37,6 +37,7 @@ def clear_approval(request_id: str):
 class ApprovalRequest(BaseModel):
     request_id: str = Field(..., min_length=1)
     decision: Literal["allow", "deny"]
+    teamchat_session_id: int = 1  # 审批归属的 TeamChat 会话（前端可传，缺省 1）
 
 
 def build_control_response(request_id: str, decision: str) -> str:
@@ -57,11 +58,27 @@ def build_control_response(request_id: str, decision: str) -> str:
 
 
 @router.post("")
-async def handle_approval(body: ApprovalRequest):
+async def handle_approval(body: ApprovalRequest, request: Request):
     """Handle human decision on a Claude tool approval request."""
     entry = _pending_approvals.get(body.request_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Approval request not found or already handled")
+
+    # 审批落库（L3 解放数据 #29）：人类审批是一次介入，agent_calls 记录计数
+    store = getattr(request.app.state, "store", None)
+    if store is not None:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            store.log(
+                agent_name="human", prompt=f"approval:{body.request_id}",
+                output=body.decision, exit_code=0, duration_ms=0,
+                task_type="approval", tag="prod",
+                teamchat_session_id=body.teamchat_session_id,
+                started_at=now, finished_at=now,
+            )
+        except Exception as exc:
+            logger.warning(f"approval log failed: {exc}")
 
     stdin_writer, event = entry
     control_response = build_control_response(body.request_id, body.decision)

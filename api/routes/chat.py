@@ -123,6 +123,7 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
                 agent_name=agent.name, prompt=task.full_prompt(),
                 output=result.output, exit_code=result.exit_code,
                 duration_ms=result.duration_ms, token_usage=result.token_usage,
+                tool_calls=result.tool_calls,
                 task_type="chat_greeting", tag="prod",
                 teamchat_session_id=teamchat_session_id,
                 started_at=result.started_at, finished_at=result.finished_at,
@@ -222,6 +223,7 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
             agent_name="cici咪", prompt=analysis_prompt,
             output=analysis, exit_code=result.exit_code,
             duration_ms=result.duration_ms, token_usage=result.token_usage,
+            tool_calls=result.tool_calls,
             task_type="chat_analysis", tag="prod",
             teamchat_session_id=teamchat_session_id,
             started_at=result.started_at, finished_at=result.finished_at,
@@ -303,6 +305,7 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
             agent_name=target.name, prompt=task.full_prompt(),
             output=result.output, exit_code=result.exit_code,
             duration_ms=result.duration_ms, token_usage=result.token_usage,
+            tool_calls=result.tool_calls,
             task_type="chat", teamchat_session_id=teamchat_session_id,
             started_at=result.started_at, finished_at=result.finished_at,
         )

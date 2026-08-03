@@ -264,9 +264,15 @@ async def stats(request: Request, teamchat_session_id: int = 1):
             "tools_by_name": tool_data.get("tools_by_name", {}),
         }
 
+    # L3 解放 — 人类参与维度（ADR-005「Stats 面板优化」）
+    l3 = store.l3_stats(
+        request.app.state.task_table, teamchat_session_id=teamchat_session_id,
+    )
+
     return {
         "agents": enriched,
         "token_grand_total": token_grand_total,
+        "l3": l3,
     }
 
 

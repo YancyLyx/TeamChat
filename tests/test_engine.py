@@ -468,6 +468,41 @@ class TestCliSessionExtract:
         assert "stream-json" in resume
 
 
+class TestToolCallsCollection:
+    """#28 — runner collects tool_use events into agent_calls.tool_calls."""
+
+    def test_codex_collector_extracts_tool_calls(self):
+        from engine.codex_events import collect_codex_tool_calls
+        sample = '\n'.join([
+            '{"type":"item.completed","item":{"id":"i1","type":"mcp_tool_call","name":"mcp__teamchat__create_task","input":{"agent":"soso咪"}}}',
+            '{"type":"item.completed","item":{"id":"i2","type":"command_execution","command":"/bin/zsh -lc \\"ls -la\\"","exit_code":0}}',
+            '{"type":"item.completed","item":{"id":"i3","type":"agent_message","text":"done"}}',
+        ])
+        calls = collect_codex_tool_calls(sample)
+        assert len(calls) == 2
+        assert calls[0]["name"] == "mcp__teamchat__create_task"
+        assert calls[0]["input"] == {"agent": "soso咪"}
+        assert "ls -la" in calls[1]["name"]
+
+    def test_cursor_collector_extracts_tool_use(self):
+        from engine.runner import collect_cursor_tool_calls
+        sample = '\n'.join([
+            '{"type":"assistant","message":{"content":[{"type":"text","text":"hi"},{"type":"tool_use","name":"Read","input":{"file_path":"a.py"}}]}}',
+            '{"type":"result","result":"hi"}',
+        ])
+        calls = collect_cursor_tool_calls(sample)
+        assert len(calls) == 1
+        assert calls[0]["name"] == "Read"
+        assert calls[0]["input"] == {"file_path": "a.py"}
+
+    def test_summarize_tool_input_truncates(self):
+        from engine.runner import _summarize_tool_input
+        big = {"data": "x" * 1000}
+        out = _summarize_tool_input(big)
+        assert "preview" in out and len(out["preview"]) <= 300
+        assert _summarize_tool_input({"a": 1}) == {"a": 1}
+
+
 class TestCodexSessionRotation:
     """#26 — codex threads bloat on every resume (observed ~6M input tokens →
     plan-only replies). spawn_with_session must rotate the stored thread."""
@@ -590,6 +625,77 @@ class TestTokenAndToolStats:
         ss.close()
 
 
+class TestCodexTokenIncrement:
+    """#27 — codex token_usage is thread-cumulative; stats must use increments."""
+
+    def _store(self, tmp_path):
+        from engine.config import Config
+        from engine.session_store import SessionStore as TeamChatSessionStore
+        from engine.store import AgentCallStore
+
+        config = Config(
+            repo_owner="test", repo_name="test", repo_url="https://github.com/test/test",
+            project_root=tmp_path,
+        )
+        ss = TeamChatSessionStore(config)
+        ss.init()
+        store = AgentCallStore(config)
+        store.init()
+        return store, ss
+
+    def _log(self, store, agent, in_t, out_t, seq):
+        store.log(
+            agent_name=agent, prompt="p", output="ok", exit_code=0, duration_ms=1,
+            tag="prod", teamchat_session_id=1,
+            token_usage={"input_tokens": in_t, "output_tokens": out_t},
+            started_at=f"2026-08-03T0{seq}:00:00+00:00",
+        )
+
+    def test_codex_usage_uses_increments(self, tmp_path):
+        """coco咪 (codex): cumulative 100→300→600 ⇒ increments 100+200+300."""
+        store, ss = self._store(tmp_path)
+        self._log(store, "coco咪", 100, 50, 1)
+        self._log(store, "coco咪", 300, 80, 2)
+        self._log(store, "coco咪", 600, 120, 3)
+
+        tokens = store.token_stats(agent_name="coco咪", tag="prod")
+        assert tokens["input_tokens"] == 600
+        assert tokens["output_tokens"] == 120
+        assert tokens["total_tokens"] == 720
+
+        stats = store.stats(agent_name="coco咪", tag="prod")
+        assert stats["token_usage"]["input_tokens"] == 600
+        assert stats["total_tokens"] == 720
+        store.close()
+        ss.close()
+
+    def test_codex_thread_rotation_negative_delta_falls_back(self, tmp_path):
+        """New thread starts small (600 → 50): negative delta falls back to
+        the current value, then continues incrementally."""
+        store, ss = self._store(tmp_path)
+        self._log(store, "coco咪", 600, 100, 1)
+        self._log(store, "coco咪", 50, 10, 2)   # 线程轮换 → 负增量 → 兜底本次值
+        self._log(store, "coco咪", 80, 20, 3)   # 50→80 增量 30/10
+
+        tokens = store.token_stats(agent_name="coco咪", tag="prod")
+        assert tokens["input_tokens"] == 600 + 50 + 30
+        assert tokens["output_tokens"] == 100 + 10 + 10
+        store.close()
+        ss.close()
+
+    def test_claude_usage_direct_sum_unchanged(self, tmp_path):
+        """cici咪 (claude): usage is already incremental — direct sum."""
+        store, ss = self._store(tmp_path)
+        self._log(store, "cici咪", 100, 5, 1)
+        self._log(store, "cici咪", 200, 10, 2)
+
+        tokens = store.token_stats(agent_name="cici咪", tag="prod")
+        assert tokens["input_tokens"] == 300
+        assert tokens["output_tokens"] == 15
+        store.close()
+        ss.close()
+
+
 class TestStoreTokenStats:
     """Token aggregation in SessionStore.stats (PR #40)."""
 
@@ -616,13 +722,190 @@ class TestStoreTokenStats:
             token_usage={"input_tokens": 20, "output_tokens": 10},
         )
 
+        # coco咪 = codex：token_usage 是线程累计值 → 增量语义
+        # input: 10 + (20-10) = 20；output: 5 + (10-5) = 10；total = 30
         stats = store.stats(agent_name="coco咪")
-        assert stats["total_tokens"] == 45
-        assert stats["token_usage"]["input_tokens"] == 30
-        assert stats["token_usage"]["output_tokens"] == 15
+        assert stats["total_tokens"] == 30
+        assert stats["token_usage"]["input_tokens"] == 20
+        assert stats["token_usage"]["output_tokens"] == 10
         store.close()
         ss.close()
 
+
+
+class TestL3Stats:
+    """#29 — L3 解放指标：自动化率 / 人工介入 / 消息→完成 / 审批。"""
+
+    def _build(self, tmp_path):
+        from engine.config import Config
+        from engine.session_store import SessionStore as TeamChatSessionStore
+        from engine.store import AgentCallStore
+        from engine.task_table import create_task_table
+
+        config = Config(
+            repo_owner="test", repo_name="test", repo_url="https://github.com/test/test",
+            project_root=tmp_path,
+        )
+        ss = TeamChatSessionStore(config)
+        ss.init()
+        store = AgentCallStore(config)
+        store.init()
+        tt = create_task_table(config)
+        return store, tt, ss
+
+    def _human_msg(self, store, ts):
+        store.log(
+            agent_name="human", prompt="做个功能", output="做个功能",
+            exit_code=0, duration_ms=0, task_type="chat_message", tag="prod",
+            teamchat_session_id=1, started_at=ts, finished_at=ts,
+        )
+
+    def test_automation_rate_and_interventions(self, tmp_path):
+        store, tt, ss = self._build(tmp_path)
+        for _ in range(3):
+            t = tt.create(agent="coco咪", title="x", description="d")
+            tt.update(t.id, status="done")
+            tt.update(t.id, finished_at="2026-07-31T10:00:00+00:00")
+        t = tt.create(agent="coco咪", title="y", description="d")
+        tt.update(t.id, status="abandoned")
+        tt.update(t.id, finished_at="2026-07-31T11:00:00+00:00")
+
+        l3 = store.l3_stats(tt, teamchat_session_id=1)
+        assert l3["automation_rate"] == 0.75
+        assert l3["human_interventions"] == 1
+        assert l3["approvals"] == 0
+
+    def test_message_to_completion_uses_max_finish(self, tmp_path):
+        store, tt, ss = self._build(tmp_path)
+        # 消息时间取过去（任务 created_at 是真实 now，须晚于消息才归组）
+        self._human_msg(store, "2026-07-31T09:00:00+00:00")
+        t1 = tt.create(agent="coco咪", title="a", description="d")
+        tt.update(t1.id, status="done")
+        tt.update(t1.id, finished_at="2026-07-31T09:10:00+00:00")
+        t2 = tt.create(agent="soso咪", title="b", description="d")
+        tt.update(t2.id, status="done")
+        tt.update(t2.id, finished_at="2026-07-31T09:15:00+00:00")
+
+        l3 = store.l3_stats(tt, teamchat_session_id=1)
+        assert l3["message_to_completion_ms"] == 15 * 60 * 1000
+
+    def test_incomplete_group_excluded(self, tmp_path):
+        store, tt, ss = self._build(tmp_path)
+        self._human_msg(store, "2026-07-31T09:00:00+00:00")
+        tt.create(agent="coco咪", title="c", description="d")  # 仍 pending
+
+        l3 = store.l3_stats(tt, teamchat_session_id=1)
+        assert l3["message_to_completion_ms"] is None
+
+    def test_no_human_messages(self, tmp_path):
+        store, tt, ss = self._build(tmp_path)
+        t = tt.create(agent="coco咪", title="x", description="d")
+        tt.update(t.id, status="done")
+
+        l3 = store.l3_stats(tt, teamchat_session_id=1)
+        assert l3["message_to_completion_ms"] is None
+        assert l3["automation_rate"] == 1.0
+
+
+class TestL3ApprovalCount:
+    """#29 — approvals count from persisted approval rows + endpoint wiring."""
+
+    def test_approvals_counted_from_agent_calls(self, tmp_path):
+        from engine.config import Config
+        from engine.session_store import SessionStore as TeamChatSessionStore
+        from engine.store import AgentCallStore
+        from engine.task_table import create_task_table
+
+        config = Config(
+            repo_owner="test", repo_name="test", repo_url="https://github.com/test/test",
+            project_root=tmp_path,
+        )
+        ss = TeamChatSessionStore(config)
+        ss.init()
+        store = AgentCallStore(config)
+        store.init()
+        tt = create_task_table(config)
+        tt.init()
+
+        now = "2026-08-03T01:00:00+00:00"
+        for _ in range(2):
+            store.log(
+                agent_name="human", prompt="approval:req", output="allow",
+                exit_code=0, duration_ms=0, task_type="approval", tag="prod",
+                teamchat_session_id=1, started_at=now, finished_at=now,
+            )
+        l3 = store.l3_stats(tt, teamchat_session_id=1)
+        assert l3["approvals"] == 2
+
+    async def test_handle_approval_persists_row(self, tmp_path):
+        import asyncio
+        from types import SimpleNamespace
+
+        from engine.config import Config
+        from engine.session_store import SessionStore as TeamChatSessionStore
+        from engine.store import AgentCallStore
+        from api.routes import approval as approval_mod
+
+        config = Config(
+            repo_owner="test", repo_name="test", repo_url="https://github.com/test/test",
+            project_root=tmp_path,
+        )
+        ss = TeamChatSessionStore(config)
+        ss.init()
+        store = AgentCallStore(config)
+        store.init()
+
+        class FakeWriter:
+            def write(self, data: bytes):
+                self.written = data
+            async def drain(self):
+                pass
+
+        writer = FakeWriter()
+        approval_mod.register_approval("req-log", writer)
+        stub_request = SimpleNamespace(
+            app=SimpleNamespace(state=SimpleNamespace(store=store)),
+        )
+        await approval_mod.handle_approval(
+            approval_mod.ApprovalRequest(request_id="req-log", decision="allow"),
+            request=stub_request,
+        )
+        rows = store.conn.execute(
+            "SELECT COUNT(*) FROM agent_calls WHERE agent_name='human' AND task_type='approval'"
+        ).fetchone()
+        assert rows[0] == 1
+        assert getattr(writer, "written", b"").startswith(b"{")
+
+
+class TestToolCallCollection:
+    """#28 - runner collects tool_use events into AgentResult.tool_calls."""
+    def test_collect_codex_tool_calls(self):
+        from engine.codex_events import collect_codex_tool_calls
+        sample = chr(10).join([
+            '{"type":"thread.started","thread_id":"t1"}',
+            '{"type":"item.completed","item":{"id":"i1","type":"command_execution","command":["grep","-r","x"],"exit_code":0}}',
+            '{"type":"item.completed","item":{"id":"i2","type":"mcp_tool_call","name":"create_task","input":{"agent":"coco咪"}}}',
+            '{"type":"item.completed","item":{"id":"i3","type":"agent_message","text":"done"}}',
+            '{"type":"item.completed","item":{"id":"i4","type":"reasoning","text":"think"}}',
+        ])
+        calls = collect_codex_tool_calls(sample)
+        assert len(calls) == 2
+        assert calls[0]["name"] == "grep -r x"
+        assert calls[1]["name"] == "create_task"
+    def test_collect_cursor_tool_calls(self):
+        from engine.runner import collect_cursor_tool_calls
+        sample = chr(10).join([
+            '{"type":"assistant","message":{"content":[{"type":"text","text":"hi"},{"type":"tool_use","name":"Read","input":{"file":"a.py"}}]}}',
+            '{"type":"result","result":"done"}',
+        ])
+        calls = collect_cursor_tool_calls(sample)
+        assert len(calls) == 1 and calls[0]["name"] == "Read"
+    def test_summarize_input_caps_long_json(self):
+        from engine.runner import _summarize_tool_input
+        big = {"data": "x" * 1000}
+        s = _summarize_tool_input(big)
+        assert "preview" in s and len(s["preview"]) == 300
+        assert _summarize_tool_input({"a": 1}) == {"a": 1}
 
 class TestRunnerAgentEnv:
     """Agent subprocess env injects per-agent git identity + PAT (ADR-003 §5)."""

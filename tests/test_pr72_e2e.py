@@ -62,7 +62,7 @@ class TestStatsL1L2L3:
         right_aside.get_by_role("button", name="Stats", exact=True).click()
         stats_panel = page.locator("aside").last
         expect(stats_panel.get_by_role("button", name="L1 效能")).to_be_visible()
-        expect(stats_panel.get_by_role("button", name="L2 效率")).to_be_visible()
+        expect(stats_panel.get_by_role("button", name="L2 流程")).to_be_visible()
         expect(stats_panel.get_by_role("button", name="L3 解放")).to_be_visible()
         expect(stats_panel.get_by_text("tool calls").first).to_be_visible(timeout=10_000)
         expect(stats_panel.get_by_text("Weekly Summary")).to_be_visible()
@@ -74,7 +74,7 @@ class TestStatsL1L2L3:
         right_aside = page.locator("aside").last
         right_aside.get_by_role("button", name="Stats", exact=True).click()
         stats_panel = page.locator("aside").last
-        stats_panel.get_by_role("button", name="L2 效率").click()
+        stats_panel.get_by_role("button", name="L2 流程").click()
         expect(stats_panel.get_by_text("Engine Mode")).to_be_visible(timeout=10_000)
         expect(stats_panel.get_by_text("Parallel")).to_be_visible()
         expect(stats_panel.get_by_text("Task Stats")).to_be_visible()
@@ -95,6 +95,7 @@ class TestStatsL1L2L3:
         expect(stats_panel.get_by_text("Automation Rate")).to_be_visible()
         expect(stats_panel.get_by_text("Manual Interventions")).to_be_visible()
         expect(stats_panel.get_by_text("Message to Completion")).to_be_visible()
+        expect(stats_panel.get_by_text("Approvals")).to_be_visible()
         # Must not show PR placeholder hardcodes
         expect(stats_panel.get_by_text("87%")).to_have_count(0)
         expect(stats_panel.get_by_text("15 min", exact=True)).to_have_count(0)

@@ -39,10 +39,13 @@ function groupTasks(tasks, byId) {
     else if (task.status === 'failed') groups.failed.push(task)
     else if (task.status === 'abandoned') groups.abandoned.push(task)
   }
-  // Done 倒序（最新在前，用户要求）；Failed/已放弃 也倒序（最新问题最显眼）
+  // Done 倒序（最新在前）；其他组全部正序（按创建顺序）
+  groups.running.sort((a, b) => a.id - b.id)
+  groups.waiting.sort((a, b) => a.id - b.id)
+  groups.pending.sort((a, b) => a.id - b.id)
   groups.done.sort((a, b) => b.id - a.id)
-  groups.failed.sort((a, b) => b.id - a.id)
-  groups.abandoned.sort((a, b) => b.id - a.id)
+  groups.failed.sort((a, b) => a.id - b.id)
+  groups.abandoned.sort((a, b) => a.id - b.id)
   return groups
 }
 

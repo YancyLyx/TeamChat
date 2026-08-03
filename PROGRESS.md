@@ -8,6 +8,8 @@ Phase: ADR-005 Phase 4.0 **端到端验证通过**（2026-08-01 本地）。协�
 
 **2026-08-03 新增：** Tasks 看板本地实现完成（coco咪）：右侧栏默认展示、Running/Waiting/Pending/Done/Failed 分组、依赖标签、失败重试/转派/放弃、按 agent 筛选、`task_table` 创建/更新 WebSocket 实时刷新（#16→#19→#17→#23 链路）。
 
+**2026-08-03 新增：** Stats 面板 L3 接入 `/api/stats.l3`（#30 P0）：App 保留并透传 l3，StatsPanel 展示自动化率/人工介入/消息→完成/审批次数。
+
 **✅ 2026-08-03 阻塞项已全部解决（#18 收尾确认）：**
 - P2 Failed 文案：guard 已移除（#25 soso咪 转派落地），TestErrorState 通过 ✅
 - **coco咪 codex 会话早退根因（#26）**：线程 019fbc3b 反复 resume 膨胀至 ~6M input tokens（≥3.5M 后模型只回计划即退）→ 已修复：dispatch.py 加 codex 会话轮换（8 次 resume 自动冷启动，仅 codex）+ session 2 codex_id 已立即重置（下次任务冷启动新线程）；**需重启引擎进程使轮换代码生效**
