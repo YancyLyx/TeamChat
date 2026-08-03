@@ -18,7 +18,7 @@ function Bar({ pct }) {
 }
 
 export default function StatsPanel({ agentMetrics = {}, l3Stats = null, sessionId = null }) {
-  const [subTab, setSubTab] = useState('L1')
+  const [subTab, setSubTab] = useState('L2')  // 默认 L2（用户要求：每次点开 stats 面板看流程/需求树）
   const [engine, setEngine] = useState(null)
   const [taskStats, setTaskStats] = useState(null)
   const [humanMessages, setHumanMessages] = useState(0)
@@ -183,22 +183,34 @@ export default function StatsPanel({ agentMetrics = {}, l3Stats = null, sessionI
                         </div>
                       </div>
                     ))}
-                    {/* 已完成（全 done/abandoned）→ 折叠列表 */}
-                    {features.filter((f) => f.running === 0 && f.pending === 0).length > 0 && (
+                    {/* 已完成（全 done/abandoned）→ 折叠列表（多节点在前，单节点聚合） */}
+                    {features.filter((f) => f.running === 0 && f.pending === 0).length > 0 && (() => {
+                      const done = features.filter((f) => f.running === 0 && f.pending === 0)
+                      const multi = done.filter((f) => f.total >= 2)  // 有意义的 DAG 树
+                      const single = done.filter((f) => f.total === 1) // 独立单任务
+                      return (
                       <details className="bg-white border border-gray-100 rounded-lg p-2">
                         <summary className="text-[10px] text-gray-500 font-mono cursor-pointer select-none">
-                          ✅ 已完成（{features.filter((f) => f.running === 0 && f.pending === 0).length}）
+                          ✅ 已完成（{multi.length} 需求树 · {single.length} 单任务）
                         </summary>
                         <div className="space-y-1 mt-1.5">
-                          {features.filter((f) => f.running === 0 && f.pending === 0).map((f) => (
+                          {/* 多节点需求树：显示详情 */}
+                          {multi.map((f) => (
                             <div key={f.feature_id} className="text-[10px] flex items-center justify-between">
                               <span className="text-gray-600 truncate max-w-[70%]" title={f.title}>{f.title}</span>
                               <span className="text-gray-400 font-mono">{f.total}节点 · {(f.completion_rate * 100).toFixed(0)}% · done {f.done} · 放弃 {f.abandoned}</span>
                             </div>
                           ))}
+                          {/* 单节点聚合：一行显示 */}
+                          {single.length > 0 && (
+                            <div className="text-[10px] text-gray-400 font-mono pt-0.5 border-t border-gray-100">
+                              {single.length} 个独立单任务（#{[...single].sort((a,b)=>b.feature_id-a.feature_id).slice(0,3).map(f=>f.feature_id).join(', #')}...）
+                            </div>
+                          )}
                         </div>
                       </details>
-                    )}
+                      )
+                    })()}
                   </>
                 )}
               </div>
