@@ -52,6 +52,10 @@ strict = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# 默认排除 e2e（Playwright）——它们与单元测试混跑会污染事件循环
+# （test_markdown_render 导致后续 async 测试失败，#3 批跑污染根因）。
+# 跑 e2e 用: pytest -m e2e
+addopts = ["-m", "not e2e"]
 markers = [
     "slow: marks tests as slow (real CLI invocations or E2E servers)",
     "e2e: Dashboard Playwright end-to-end tests",

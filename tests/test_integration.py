@@ -131,19 +131,31 @@ class TestErrorHandling:
 class TestOutputParsing:
     """Claude JSON output parsing and token usage extraction."""
 
-    async def test_claude_json_output_parsed(self, monkeypatch):
-        runner = AgentRunner(IntegrationTestConfig())
-        payload = {
-            "content": [{"type": "text", "text": "Hello from Claude!"}],
-            "usage": {"input_tokens": 12, "output_tokens": 7},
-        }
-        raw = json.dumps(payload)
+    @staticmethod
+    def _make_fake_process(stdout_data: bytes = b""):
+        """claude 分支走 _read_claude_stream（逐行读 stdout）— FakeProcess 需模拟 stdout 流。"""
+
+        class FakeStream:
+            def __init__(self, data: bytes):
+                self._lines = data.splitlines(keepends=True) if data else []
+                self._closed = False
+
+            async def readline(self):
+                return self._lines.pop(0) if self._lines else b""
+
+            def close(self):
+                self._closed = True
 
         class FakeProcess:
             returncode = 0
+            stdin = None
+
+            def __init__(self, stdout_data=b""):
+                self.stdout = FakeStream(stdout_data)
+                self.stderr = FakeStream(b"")
 
             async def communicate(self):
-                return raw.encode("utf-8"), b""
+                return b"", b""
 
             async def kill(self):
                 pass
@@ -151,8 +163,19 @@ class TestOutputParsing:
             async def wait(self):
                 pass
 
+        return FakeProcess(stdout_data)
+
+    async def test_claude_json_output_parsed(self, monkeypatch):
+        runner = AgentRunner(IntegrationTestConfig())
+        # stream-json 事件格式（runner 现在按事件解析）：assistant 提取 text，result 提取 usage
+        payload = [
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "Hello from Claude!"}]}},
+            {"type": "result", "usage": {"input_tokens": 12, "output_tokens": 7}},
+        ]
+        raw = "\n".join(json.dumps(p) for p in payload)
+
         async def fake_exec(*args, **kwargs):
-            return FakeProcess()
+            return self._make_fake_process(raw.encode("utf-8"))
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
 
@@ -168,20 +191,8 @@ class TestOutputParsing:
     async def test_non_json_output_kept_as_text(self, monkeypatch):
         runner = AgentRunner(IntegrationTestConfig())
 
-        class FakeProcess:
-            returncode = 0
-
-            async def communicate(self):
-                return b"plain text response", b""
-
-            async def kill(self):
-                pass
-
-            async def wait(self):
-                pass
-
         async def fake_exec(*args, **kwargs):
-            return FakeProcess()
+            return self._make_fake_process(b"plain text response\n")
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
 

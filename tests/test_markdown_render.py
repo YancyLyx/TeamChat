@@ -11,12 +11,16 @@ from playwright.sync_api import Page, expect
 
 from tests.e2e_support import broadcast_ws
 
+# TestMarkdownUnit（node 单元测试）不标记 e2e —— 可与单元测试混跑；
+# Playwright 部分（TestMarkdownRenderE2E）标记 e2e，默认被 -m "not e2e" 排除
 pytestmark = [pytest.mark.e2e, pytest.mark.slow]
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestMarkdownUnit:
+    """node 单元测试（verify-markdown.mjs），无浏览器依赖，可与单元测试混跑。"""
+    pytestmark = [pytest.mark.slow]  # 覆盖模块级标记：去掉 e2e
     def test_node_markdown_security_checks(self):
         script = ROOT / "dashboard" / "scripts" / "verify-markdown.mjs"
         proc = subprocess.run(

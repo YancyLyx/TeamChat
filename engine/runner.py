@@ -262,6 +262,15 @@ class AgentRunner:
                     break
         except asyncio.TimeoutError:
             logger.error(f"⏰ {agent.name} stream timeout after {timeout}s")
+            # 超时必须 kill 进程，否则 break 后 `await process.wait()` 会等它自然
+            # 跑完（sleep 30 跑满 30s 才返回，exit_code=0 被误判为成功）。
+            # kill 后 re-raise，让 _run 的统一 TimeoutError 分支返回 TIMEOUT 结果。
+            try:
+                process.kill()
+                await process.wait()
+            except Exception:
+                pass
+            raise
         finally:
             stderr_task.cancel()
             for req_id in pending_ids:

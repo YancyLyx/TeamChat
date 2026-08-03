@@ -837,15 +837,20 @@ class TestL3ApprovalCount:
         l3 = store.l3_stats(tt, teamchat_session_id=1)
         assert l3["approvals"] == 2
 
-    async def test_handle_approval_persists_row(self, tmp_path):
-        import asyncio
-        from types import SimpleNamespace
+    def test_handle_approval_persists_row(self, tmp_path):
+        """Sync TestClient avoids asyncio loop clash with Playwright e2e in same session."""
+        import json
 
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from api.routes import approval as approval_mod
         from engine.config import Config
         from engine.session_store import SessionStore as TeamChatSessionStore
         from engine.store import AgentCallStore
-        from api.routes import approval as approval_mod
+        from tests.test_approval import MockStdinWriter
 
+        approval_mod._pending_approvals.clear()
         config = Config(
             repo_owner="test", repo_name="test", repo_url="https://github.com/test/test",
             project_root=tmp_path,
@@ -855,26 +860,26 @@ class TestL3ApprovalCount:
         store = AgentCallStore(config)
         store.init()
 
-        class FakeWriter:
-            def write(self, data: bytes):
-                self.written = data
-            async def drain(self):
-                pass
+        app = FastAPI()
+        app.include_router(approval_mod.router)
+        app.state.store = store
+        client = TestClient(app)
 
-        writer = FakeWriter()
+        writer = MockStdinWriter()
         approval_mod.register_approval("req-log", writer)
-        stub_request = SimpleNamespace(
-            app=SimpleNamespace(state=SimpleNamespace(store=store)),
+        resp = client.post(
+            "/api/approval",
+            json={"request_id": "req-log", "decision": "allow"},
         )
-        await approval_mod.handle_approval(
-            approval_mod.ApprovalRequest(request_id="req-log", decision="allow"),
-            request=stub_request,
-        )
+        assert resp.status_code == 200
         rows = store.conn.execute(
             "SELECT COUNT(*) FROM agent_calls WHERE agent_name='human' AND task_type='approval'"
         ).fetchone()
         assert rows[0] == 1
-        assert getattr(writer, "written", b"").startswith(b"{")
+        assert writer.chunks and json.loads(writer.chunks[0].decode())["type"] == "control_response"
+        approval_mod._pending_approvals.clear()
+        store.close()
+        ss.close()
 
 
 class TestToolCallCollection:

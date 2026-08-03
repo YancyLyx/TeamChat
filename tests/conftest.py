@@ -79,7 +79,12 @@ class IntegrationTestConfig:
     )
     command_builder: Callable[[AgentIdentity, str], list[str]] | None = None
 
-    def get_cli_command(self, agent: AgentIdentity, prompt: str) -> list[str]:
+    def get_token(self, agent: AgentIdentity) -> str | None:
+        """测试环境无真实 token（runner git 身份注入需要此方法）。"""
+        return None
+
+    def get_cli_command(self, agent: AgentIdentity, prompt: str,
+                        use_continue: bool = False, session_id: str | None = None) -> list[str]:
         if self.command_builder is not None:
             return self.command_builder(agent, prompt)
         template = CLI_TEMPLATES[agent.cli]
