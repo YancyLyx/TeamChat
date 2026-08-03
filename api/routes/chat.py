@@ -205,19 +205,28 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
             engine_log.info(f"🔧 Fixed {fixed} analysis-created task(s) session")
 
         engine_log.info(f"📝 cici咪 analysis result ({len(analysis)} chars)")
-        # Always show cici咪's output in chat bubble
+        # 判断 cici咪 是否真的创建了新任务（用于准确的系统提示，修复"说没建却显示已建"）
+        new_tasks = [t for t in task_table.list_tasks() if t.id not in tasks_before]
+
+        # Show cici咪's output in chat bubble（放宽截断 500 → 2000）
         await ws_mgr.broadcast({
             "type": "chat_message",
-            "data": {"kind": "agent_reply", "agent": "cici咪", "content": analysis[:500], "timestamp": now},
+            "data": {"kind": "agent_reply", "agent": "cici咪", "content": analysis[:2000], "timestamp": now},
         })
 
-        # cici咪 has created tasks via MCP tools during analysis.
         # The TaskScheduler (background loop) picks up unblocked tasks and dispatches them —
         # no synchronous dispatch here (ADR-003 中枢模式: Engine 派发, cici咪 决策).
-        await ws_mgr.broadcast({
-            "type": "system_message",
-            "data": {"content": "cici咪 分析完成，任务已创建，调度器将自动派发", "timestamp": now},
-        })
+        if new_tasks:
+            await ws_mgr.broadcast({
+                "type": "system_message",
+                "data": {"content": f"cici咪 分析完成，已创建 {len(new_tasks)} 个任务，调度器将自动派发",
+                         "timestamp": now},
+            })
+        else:
+            await ws_mgr.broadcast({
+                "type": "system_message",
+                "data": {"content": "cici咪 分析完成", "timestamp": now},
+            })
         return ChatResponse(target_agent="cici咪", task_prompt=content, status="analyzed")
 
     # ---- MULTIPLE @mentions: broadcast ----
