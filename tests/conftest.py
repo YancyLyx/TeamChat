@@ -173,9 +173,22 @@ def e2e_servers(tmp_path_factory):
     restore_runner = install_mock_runner(project_root=e2e_root)
 
     import api.main as api_main_module
+    import engine.config as engine_config_module
     import engine.runner as runner_module
 
     api_main_module.create_runner = runner_module.create_runner
+    # 隔离 DB：e2e 的 API lifespan 用 e2e_root 的 config（store/task_table/session_store
+    # 都写隔离的 .teamchat/teamchat.db，不污染真实 DB —— #33 污染事件修复）
+    _orig_load = api_main_module.load_config
+
+    def _isolated_load():
+        base = _orig_load()
+        return engine_config_module.Config(
+            repo_owner=base.repo_owner, repo_name=base.repo_name,
+            repo_url=base.repo_url, project_root=e2e_root,
+        )
+
+    api_main_module.load_config = _isolated_load
     from api.main import app as fastapi_app
 
     api_config = uvicorn.Config(
@@ -207,6 +220,7 @@ def e2e_servers(tmp_path_factory):
         if vite_proc is not None:
             vite_proc.terminate()
             vite_proc.wait(timeout=10)
+        api_main_module.load_config = _orig_load  # 恢复真实 config
         restore_runner()
 
 
