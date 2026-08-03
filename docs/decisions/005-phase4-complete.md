@@ -580,27 +580,41 @@ TaskScheduler 派发 soso咪 执行任务 X（running）
 3. 三个 Level 目的不清晰、有重复（L1/L2 都是任务统计）
 4. 无需求粒度（Feature）聚合
 
-**Level 重定义**（各管一维，消除重复）：
+**Level 重定义**（各管一维，消除重复，2026-08-03 修订为 3 tab）：
 
 | Level | 观测维度 | 核心指标 |
 |---|---|---|
 | L1 效能 | agent 执行质量 | 完成数、成功率、平均时长、token（修累计）、工具调用（补记录） |
-| L2 流程 | DAG/队列结构 | Engine Mode、队列、DAG 数、依赖深度、阻塞任务、平均周转（替换重复的任务统计） |
+| L2 流程 | 流程 + 需求树 | Engine Mode、队列、任务概览、**需求树（进行中 DAG 图 + 已完成折叠）** |
 | L3 解放 | 人类参与 | 自动化率、人工介入、消息→完成、审批次数 |
 
 **数据修复**：
-- token：codex 改为增量估算（本次 usage - 上次）或标注"线程累计"；claude/cursor 的 usage 是增量（直接累计）
+- token：codex 改为增量估算（本次 usage - 上次）；claude/cursor 的 usage 是增量（直接累计）
 - tool calls：runner 收集 tool_use 事件写入 agent_calls.tool_calls
 
-**新增 Features 视图**（按 feature_id 聚合）：
+**需求树（Features）并入 L2**（用户确认，替代独立 FEAT tab）：
 
 ```
-📦 Features
-  [实现 Tasks 看板] (feature #16)  6 节点
-    ✅ 完成率 83% · done 5 · 放弃 1 · 转派 1 · 依赖深度 4
-  [修复 codex 会话]  (feature #26)  2 节点
-    ✅ 完成率 100%
+L2 流程
+  ── Engine 状态 ──
+  Mode: Parallel · queue: 0
+  ── 任务概览 ──
+  Total 23 · Done 20 · Running 1 · Pending 2 · 87%
+  ── 📦 需求树 ──
+  🔄 进行中（1）— DAG 图（实时）
+    A1(token) ──┐
+    A2(tools) ──┼──► B(测试) ──► C(收尾)
+    A3(L3)   ──┘
+    ●done ●done ●running(亮灯) ○pending ●done
+  ✅ 已完成（2）▼ 折叠
+    [实现 Tasks 看板] 11节点 · 91% · done 10 · 放弃 1
 ```
+
+**DAG 图规则**：
+- **进行中需求**（有 running/pending 节点）→ SVG DAG 图（按依赖深度分层，节点 = 任务）
+- **已完成需求**（全 done/abandoned）→ 折叠列表（数量 + 总览）
+- **节点状态色**：done 绿 / running 蓝（呼吸亮灯）/ pending 灰 / failed 红 / 放弃 暗灰
+- **实时更新**：完全数据驱动——tasks 数组变化（WS `task_table_updated`，watchdog 已实现）→ 图自动重绘（新任务/新边/状态灯变化均同步，如 #22 执行中创建的场景）
 
 ---
 
