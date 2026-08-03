@@ -165,6 +165,75 @@ async def submit_task(request: Request, task_req: TaskRequest):
         router_inst.mark_free(agent)
 
 
+# ---- Features 聚合（需求树统计，ADR-005 feature_id）----
+
+
+def _feature_depth(task_table, task_id: int, memo: dict) -> int:
+    """递归计算任务的最长依赖链深度。"""
+    if task_id in memo:
+        return memo[task_id]
+    task = task_table.get(task_id)
+    if not task or not task.depends_on:
+        memo[task_id] = 1
+        return 1
+    depth = 1 + max((_feature_depth(task_table, d, memo) for d in task.depends_on), default=0)
+    memo[task_id] = depth
+    return depth
+
+
+@router.get("/features")
+async def features(request: Request, teamchat_session_id: int = 1):
+    """按 feature_id（需求树）聚合统计：完成率/失败率/放弃率/深度/时长。"""
+    tt = request.app.state.task_table
+    tasks = tt.list_tasks(teamchat_session_id=teamchat_session_id)
+
+    by_feature: dict[int, list] = {}
+    for t in tasks:
+        fid = t.feature_id or t.id  # 旧任务无 feature_id → 自成一树
+        by_feature.setdefault(fid, []).append(t)
+
+    features = []
+    memo: dict = {}
+    for fid, nodes in by_feature.items():
+        root = next((t for t in nodes if t.id == fid), nodes[0])
+        total = len(nodes)
+        done = sum(1 for t in nodes if t.status == 'done')
+        failed = sum(1 for t in nodes if t.status == 'failed')
+        abandoned = sum(1 for t in nodes if t.status == 'abandoned')
+        running = sum(1 for t in nodes if t.status == 'running')
+        pending = sum(1 for t in nodes if t.status == 'pending')
+        depth = max((_feature_depth(tt, t.id, memo) for t in nodes), default=1)
+        # 总时长：最早的 created_at → 最晚的 finished_at（有值的）
+        times = [t.finished_at for t in nodes if t.finished_at] or []
+        created_times = [t.created_at for t in nodes if t.created_at]
+        duration_sec = 0
+        if created_times and times:
+            from datetime import datetime
+            try:
+                start = min(created_times)
+                end = max(times)
+                duration_sec = max(0, (datetime.fromisoformat(end) - datetime.fromisoformat(start)).total_seconds())
+            except Exception:
+                duration_sec = 0
+        features.append({
+            "feature_id": fid,
+            "title": root.title if root else f"feature #{fid}",
+            "total": total,
+            "done": done,
+            "failed": failed,
+            "abandoned": abandoned,
+            "running": running,
+            "pending": pending,
+            "completion_rate": round(done / total, 3) if total else 0,
+            "fail_rate": round(failed / total, 3) if total else 0,
+            "abandon_rate": round(abandoned / total, 3) if total else 0,
+            "depth": depth,
+            "duration_sec": int(duration_sec),
+        })
+    features.sort(key=lambda f: -f["feature_id"])
+    return {"features": features}
+
+
 @router.get("/{task_id}", response_model=SessionRow)
 async def get_session_task(request: Request, task_id: int):
     """Query a completed task result by session ID."""

@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS task_table (
     finished_at TEXT    NOT NULL DEFAULT '',
     retry_count INTEGER NOT NULL DEFAULT 0,
     last_error  TEXT    NOT NULL DEFAULT '',
+    feature_id  INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (teamchat_session_id) REFERENCES teamchat_sessions(id)
 );
 
@@ -54,6 +55,7 @@ class Task:
     finished_at: str = ""
     retry_count: int = 0
     last_error: str = ""
+    feature_id: int = 0  # 需求树标识：同一棵 DAG 树的节点共享（根任务的 id）
 
     @property
     def is_blocked(self) -> bool:
@@ -75,6 +77,7 @@ class Task:
             "finished_at": self.finished_at,
             "retry_count": self.retry_count,
             "last_error": self.last_error,
+            "feature_id": self.feature_id,
         }
 
 
@@ -115,6 +118,10 @@ class TaskTable:
             self._conn.execute(
                 "ALTER TABLE task_table ADD COLUMN last_error TEXT NOT NULL DEFAULT ''"
             )
+        if "feature_id" not in columns:
+            self._conn.execute(
+                "ALTER TABLE task_table ADD COLUMN feature_id INTEGER NOT NULL DEFAULT 0"
+            )
         self._conn.commit()
 
     def close(self):
@@ -126,18 +133,41 @@ class TaskTable:
 
     def create(self, agent: str, title: str, description: str = "",
                depends_on: list[int] | None = None,
-               teamchat_session_id: int = 1) -> Task:
-        """Create a new task. Returns the created Task with ID."""
+               teamchat_session_id: int = 1,
+               feature_id: int | None = None) -> Task:
+        """Create a new task. Returns the created Task with ID.
+
+        feature_id 归属规则（需求树标识）:
+          1. 显式传入 → 归属该树
+          2. depends_on 非空 → 继承依赖任务的 feature_id（自动归属父树）
+          3. 都没有 → 新需求：feature_id = 自己的 id（自己是根）
+        """
         now = datetime.now(timezone.utc).isoformat()
-        deps = json.dumps(depends_on or [], ensure_ascii=False)
+        deps = depends_on or []
+        # 归属计算
+        fid = feature_id or 0
+        if not fid and deps:
+            for dep_id in deps:
+                dep = self.get(dep_id)
+                if dep and dep.feature_id:
+                    fid = dep.feature_id
+                    break
         self.conn.execute(
             """INSERT INTO task_table
-               (teamchat_session_id, agent, title, description, status, depends_on, created_at)
-               VALUES (?, ?, ?, ?, 'pending', ?, ?)""",
-            (teamchat_session_id, agent, title, description, deps, now),
+               (teamchat_session_id, agent, title, description, status, depends_on,
+                created_at, feature_id)
+               VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)""",
+            (teamchat_session_id, agent, title, description,
+             json.dumps(deps, ensure_ascii=False), now, fid),
         )
         self.conn.commit()
         row_id = self.conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        # 新需求（无依赖无显式 feature）→ 自己是根
+        if not fid:
+            self.conn.execute(
+                "UPDATE task_table SET feature_id = ? WHERE id = ?", (row_id, row_id)
+            )
+            self.conn.commit()
         return self.get(row_id)  # type: ignore
 
     def get(self, task_id: int) -> Task | None:
@@ -151,7 +181,7 @@ class TaskTable:
         allowed = {"agent", "title", "description", "status",
                    "depends_on", "github_issue", "output_summary",
                    "started_at", "finished_at", "teamchat_session_id",
-                   "retry_count", "last_error"}
+                   "retry_count", "last_error", "feature_id"}
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
             return
@@ -226,6 +256,43 @@ class TaskTable:
         """Find tasks that depend on the given task."""
         all_tasks = self.list_tasks()
         return [t for t in all_tasks if task_id in t.depends_on]
+
+    def migrate_features(self) -> int:
+        """为现有任务（feature_id=0）按 DAG 结构计算归属（一次性迁移）。
+
+        根任务（无依赖）= feature 根；有依赖的继承祖先的 feature_id。
+        返回修正的任务数。
+        """
+        tasks = self.list_tasks()
+        fid_by_id: dict[int, int] = {}
+        # 第一轮：无依赖的任务 = 根
+        for t in tasks:
+            if not t.depends_on:
+                fid_by_id[t.id] = t.id
+        # 迭代：有依赖的继承已确定的祖先
+        changed = True
+        while changed:
+            changed = False
+            for t in tasks:
+                if t.id in fid_by_id:
+                    continue
+                for dep in t.depends_on:
+                    if dep in fid_by_id:
+                        fid_by_id[t.id] = fid_by_id[dep]
+                        changed = True
+                        break
+        # 残留（依赖链断裂）：自建根
+        for t in tasks:
+            if t.id not in fid_by_id:
+                fid_by_id[t.id] = t.id
+        # 更新
+        fixed = 0
+        for t in tasks:
+            fid = fid_by_id.get(t.id, t.id)
+            if t.feature_id != fid:
+                self.update(t.id, feature_id=fid)
+                fixed += 1
+        return fixed
 
     def reset_interrupted(self) -> int:
         """Restart recovery: reset running tasks back to pending.
@@ -304,6 +371,7 @@ class TaskTable:
             finished_at=row[10 + offset] if len(row) > 10 + offset else "",
             retry_count=row[11 + offset] if len(row) > 11 + offset else 0,
             last_error=row[12 + offset] if len(row) > 12 + offset else "",
+            feature_id=row[13 + offset] if len(row) > 13 + offset else 0,
         )
 
 

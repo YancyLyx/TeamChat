@@ -46,13 +46,16 @@ def handle_create_task(args: dict) -> dict:
     title = args.get("title", "")
     prompt = args.get("prompt", "")
     depends_on = args.get("depends_on", [])
+    feature_id = args.get("feature_id")
 
     if not agent or not title:
         return {"error": "agent and title are required"}
 
     tt = _get_task_table()
-    task = tt.create(agent=agent, title=title, description=prompt, depends_on=depends_on)
-    logger.info(f"📝 create_task: #{task.id} '{title}' → {agent} (deps={depends_on})")
+    task = tt.create(agent=agent, title=title, description=prompt,
+                     depends_on=depends_on, feature_id=feature_id)
+    logger.info(f"📝 create_task: #{task.id} '{title}' → {agent} "
+                f"(deps={depends_on}, feature={task.feature_id})")
 
     # Phase 4.2: DAG 校验 — 循环 + 孤儿依赖（不阻塞创建，cici咪 修正）
     warnings = []
@@ -149,6 +152,10 @@ TOOLS = {
                     "type": "array",
                     "items": {"type": "integer"},
                     "description": "Task IDs this depends on",
+                },
+                "feature_id": {
+                    "type": "integer",
+                    "description": "需求树标识：追加修复/转派任务时传入原 feature_id（继承所属需求树）；新需求不传（自动建根）",
                 },
             },
             "required": ["agent", "title"],

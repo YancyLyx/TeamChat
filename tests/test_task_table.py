@@ -98,3 +98,23 @@ def test_reset_interrupted_running_to_pending(task_table: TaskTable):
     assert recovered == 1
     assert task_table.get(t1.id).status == "pending"
     assert task_table.get(t2.id).status == "done"  # 非 running 不动
+
+
+def test_feature_id_inheritance(task_table: TaskTable):
+    """feature_id 归属: 继承依赖 / 新需求自建根 / 显式传入。"""
+    # 新需求：无依赖 → 自己是根
+    root = task_table.create("cici咪", "实现看板")
+    assert root.feature_id == root.id
+
+    # 依赖继承：子任务归属根树
+    child = task_table.create("coco咪", "实现 UI", depends_on=[root.id])
+    assert child.feature_id == root.feature_id
+
+    # 显式传入：修复任务归属原树（depends_on 空也不影响）
+    fix = task_table.create("soso咪", "修复缺口", feature_id=root.feature_id)
+    assert fix.feature_id == root.feature_id
+
+    # 另一个新需求：独立树
+    other = task_table.create("soso咪", "写文档")
+    assert other.feature_id == other.id
+    assert other.feature_id != root.feature_id

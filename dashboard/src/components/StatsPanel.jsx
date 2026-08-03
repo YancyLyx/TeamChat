@@ -22,8 +22,27 @@ export default function StatsPanel({ agentMetrics = {} }) {
   const [taskStats, setTaskStats] = useState(null)
   const [humanMessages, setHumanMessages] = useState(0)
   const [loadingL2, setLoadingL2] = useState(true)
+  const [features, setFeatures] = useState([])
+  const [featuresLoading, setFeaturesLoading] = useState(false)
   const summary = weeklySummary(agentMetrics)
   const liberation = liberationMetrics({ agentMetrics, summary, taskStats, humanMessages })
+
+  useEffect(() => {
+    if (subTab !== 'FEAT') return
+    let cancelled = false
+    setFeaturesLoading(true)
+    ;(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/tasks/features?teamchat_session_id=1`)
+        if (!cancelled && res.ok) {
+          const data = await res.json()
+          setFeatures(data.features || [])
+        }
+      } catch { /* ignore */ }
+      finally { if (!cancelled) setFeaturesLoading(false) }
+    })()
+    return () => { cancelled = true }
+  }, [subTab])
 
   useEffect(() => {
     if (subTab !== 'L3') return
@@ -62,12 +81,12 @@ export default function StatsPanel({ agentMetrics = {} }) {
 
   return (
     <div className="p-3 space-y-4 bg-white">
-      {/* Sub-tab nav */}
+      {/* Sub-tab nav：L1 效能 / L2 流程 / L3 解放 / 📦 Features（需求树聚合） */}
       <div className="flex border-b border-gray-100 -mx-3 px-3">
-        {['L1', 'L2', 'L3'].map((tab) => (
+        {['L1', 'L2', 'L3', 'FEAT'].map((tab) => (
           <button key={tab} onClick={() => setSubTab(tab)}
             className={`flex-1 text-xs py-1.5 font-medium transition-colors ${subTab === tab ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'}`}>
-            {tab === 'L1' ? 'L1 效能' : tab === 'L2' ? 'L2 效率' : 'L3 解放'}
+            {tab === 'L1' ? 'L1 效能' : tab === 'L2' ? 'L2 流程' : tab === 'L3' ? 'L3 解放' : '📦 Features'}
           </button>
         ))}
       </div>
@@ -147,6 +166,38 @@ export default function StatsPanel({ agentMetrics = {} }) {
               <div><span className="text-gray-400">Message to Completion</span><p className="text-sm font-bold text-gray-700 mt-0.5">{liberation.message_to_completion}</p></div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 📦 Features — 需求树聚合（feature_id） */}
+      {subTab === 'FEAT' && (
+        <div className="space-y-3">
+          {featuresLoading ? (
+            <div className="space-y-2"><div className="h-3 bg-gray-100 rounded animate-pulse w-16" /><div className="h-12 bg-gray-100 rounded animate-pulse" /></div>
+          ) : features.length === 0 ? (
+            <p className="text-xs text-gray-400 text-center py-6">暂无需求树</p>
+          ) : (
+            features.map((f) => (
+              <div key={f.feature_id} className="bg-white border border-gray-100 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-gray-700 truncate max-w-[70%]" title={f.title}>{f.title}</span>
+                  <span className="text-[10px] text-gray-400 font-mono">{f.total} 节点 · 深度 {f.depth}</span>
+                </div>
+                <Bar pct={f.completion_rate * 100} />
+                <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1 text-[10px] text-gray-400 font-mono">
+                  <span className="text-green-600">done {f.done}</span>
+                  <span className="text-red-600">failed {f.failed}</span>
+                  <span className="text-gray-500">放弃 {f.abandoned}</span>
+                  <span className="text-blue-600">running {f.running}</span>
+                  <span className="text-yellow-600">pending {f.pending}</span>
+                  <span className="ml-auto">完成率 {(f.completion_rate * 100).toFixed(0)}%</span>
+                </div>
+                {f.duration_sec > 0 && (
+                  <p className="text-[10px] text-gray-400 font-mono mt-0.5">总时长 {(f.duration_sec / 60).toFixed(0)}min</p>
+                )}
+              </div>
+            ))
+          )}
         </div>
       )}
 
