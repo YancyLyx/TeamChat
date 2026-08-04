@@ -580,3 +580,89 @@ class TestPollutionGuard:
 
         assert task_table.get(task.id).status == "running"  # 正常派发
         mock_runner._run.assert_awaited_once()
+
+
+class TestParallelDispatch:
+    """ADR-006 #96 — 不同 agent 的独立任务并行派发。"""
+
+    def _scheduler(self, task_table, mock_runner):
+        from engine.router import Router
+        result_relay = AsyncMock()
+        router = Router()  # 真实 Router：mark_busy/mark_free 真实生效
+        store = MagicMock()
+        session_store = MagicMock()
+        session_store.get_agent_session_id.return_value = "sid"
+        return TaskScheduler(
+            mock_runner, router, task_table, session_store, store, result_relay,
+        )
+
+    async def test_different_agents_dispatch_in_parallel(self, task_table, mock_runner):
+        """coco咪 + soso咪 各 1 个 unblocked 任务 → 同一轮并发启动。"""
+        import asyncio
+
+        started = []  # (agent_name, loop_time)
+        async def fake_run(agent, task, use_continue=False, session_id=None,
+                           on_stream=None, **kwargs):
+            started.append((agent.name, asyncio.get_running_loop().time()))
+            await asyncio.sleep(0.05)  # 模拟执行时间
+            return _make_result(agent_name=agent.name)
+
+        mock_runner._run = fake_run
+        task_table.create(agent="coco咪", title="A", description="并行任务A")
+        task_table.create(agent="soso咪", title="B", description="并行任务B")
+
+        scheduler = self._scheduler(task_table, mock_runner)
+        await scheduler._poll_once()
+
+        assert [a for a, _ in started] == ["coco咪", "soso咪"]
+        # 并发证明：两个任务都在对方完成前启动（间隔 < 0.05s 执行时间）
+        gap = abs(started[0][1] - started[1][1])
+        assert gap < 0.05, f"两个任务未并行启动，间隔 {gap:.4f}s"
+
+    async def test_same_agent_dispatched_serially(self, task_table, mock_runner):
+        """同 agent 的 2 个任务：第一轮只派 1 个，完成后第二轮才派下一个。"""
+        import asyncio
+
+        started = []
+        async def fake_run(agent, task, use_continue=False, session_id=None,
+                           on_stream=None, **kwargs):
+            started.append(task.prompt)
+            await asyncio.sleep(0.01)
+            return _make_result(agent_name=agent.name)
+
+        mock_runner._run = fake_run
+        task_table.create(agent="coco咪", title="A1", description="同agent任务1")
+        task_table.create(agent="coco咪", title="A2", description="同agent任务2")
+
+        scheduler = self._scheduler(task_table, mock_runner)
+        await scheduler._poll_once()
+        assert started == ["同agent任务1"], "同 agent 两个任务不应在同一轮并行派发"
+
+        # 第一个完成后（busy 已释放），下一轮派发第二个
+        await scheduler._poll_once()
+        assert started == ["同agent任务1", "同agent任务2"]
+
+    async def test_one_failure_does_not_block_others(self, task_table, mock_runner):
+        """一个任务 spawn 抛异常：同伴任务正常完成，_poll_once 不抛。"""
+        async def fake_run(agent, task, use_continue=False, session_id=None,
+                           on_stream=None, **kwargs):
+            if task.prompt == "BAD":
+                raise RuntimeError("CLI 崩溃")
+            return _make_result(agent_name=agent.name)
+
+        mock_runner._run = fake_run
+        task_table.create(agent="coco咪", title="BAD", description="BAD")
+        task_table.create(agent="soso咪", title="OK", description="正常任务")
+
+        scheduler = self._scheduler(task_table, mock_runner)
+        await scheduler._poll_once()  # 不应抛异常
+
+        ok_task = [t for t in task_table.list_tasks() if t.title == "OK"][0]
+        # 失败任务重试耗尽也走 relay（给 cici咪 决策），故 2 次
+        relayed_ids = [c.args[0].id for c in scheduler.result_relay.relay.await_args_list]
+        assert len(relayed_ids) == 2
+        assert ok_task.id in relayed_ids
+        bad = [t for t in task_table.list_tasks() if t.title == "BAD"][0]
+        # 铁律：引擎不标 done/failed，失败任务保持 running 等 cici咪 审核决策
+        assert bad.status == "running"
+        assert bad.retry_count == 3

@@ -230,26 +230,61 @@ class TaskScheduler:
         await self.result_relay.relay(fresh_task, result, retries=retries)
 
     async def run(self):
-        """Main poll loop. Dispatch unblocked tasks whose agent is free."""
+        """Main poll loop. Dispatch unblocked tasks whose agent is free.
+
+        每轮并发派发可派发的任务（ADR-006 #96）：不同 agent 的独立任务
+        并行执行。同 agent 串行由 busy 标记保证（见 _collect_dispatchable）。
+        """
         self._running = True
         logger.info("🚀 Task Scheduler started")
         while self._running:
             try:
-                unblocked = self.task_table.unblocked_tasks()
-                for task in unblocked:
-                    agent = self._find_agent(task.agent)
-                    # Only dispatch if the target agent is free (one task per agent at a time)
-                    if agent and not self.router.is_busy(agent):
-                        # 延迟派发: cici咪 busy（分析/审核中）期间创建的任务，
-                        # 等 cici咪 空闲后再派发 — 避免 task_started 先于
-                        # cici咪 的回复显示（用户报告的顺序问题）。
-                        if self._should_defer(task):
-                            continue
-                        await self._dispatch(task)
+                await self._poll_once()
             except Exception as exc:
                 logger.error(f"Scheduler loop error: {exc}")
             await self._broadcast_task_changes()
             await asyncio.sleep(POLL_INTERVAL)
+
+    async def _poll_once(self):
+        """One poll cycle: collect dispatchable tasks and dispatch them in parallel."""
+        dispatchable = self._collect_dispatchable()
+        if not dispatchable:
+            return
+        logger.info(f"🚀 Dispatching {len(dispatchable)} task(s) in parallel")
+        results = await asyncio.gather(
+            *(self._dispatch(t) for t in dispatchable),
+            return_exceptions=True,
+        )
+        for task, res in zip(dispatchable, results):
+            if isinstance(res, Exception):
+                # 单个任务 spawn 失败不影响并行同伴和后续轮询（ADR-006 #96）
+                logger.error(f"Task #{task.id} dispatch failed: {res}")
+
+    def _collect_dispatchable(self) -> list:
+        """Pick up to one unblocked task per free agent per poll.
+
+        按 agent 去重（每轮每 agent 最多 1 个）——同 agent 的两个任务
+        不会在同一轮被选中，第二个留到下一轮等 busy 释放，天然保持
+        "同 agent 串行"，busy 标记管理零改动、无竞态（ADR-006 #96）。
+        """
+        unblocked = self.task_table.unblocked_tasks()
+        picked: list = []
+        picked_agents: set[str] = set()
+        for task in unblocked:
+            agent = self._find_agent(task.agent)
+            # Only dispatch if the target agent is free (one task per agent at a time)
+            if not agent or self.router.is_busy(agent):
+                continue
+            if agent.name in picked_agents:
+                continue
+            # 延迟派发: cici咪 busy（分析/审核中）期间创建的任务，
+            # 等 cici咪 空闲后再派发 — 避免 task_started 先于
+            # cici咪 的回复显示（用户报告的顺序问题）。
+            if self._should_defer(task):
+                continue
+            picked.append(task)
+            picked_agents.add(agent.name)
+        return picked
 
     def _should_defer(self, task: Task) -> bool:
         """Defer dispatch if the task was created while cici咪 is busy
