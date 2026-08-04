@@ -201,6 +201,59 @@ class TestOutputParsing:
         assert result.output == "plain text response"
         assert result.token_usage == {}
 
+    @staticmethod
+    def _fake_process_for_cli(cli: str) -> bytes:
+        """Build a JSONL stream that exercises the per-CLI text extraction."""
+        if cli == "claude":
+            events = [
+                {"type": "assistant", "message": {"content": [
+                    {"type": "text", "text": "第一段"},
+                ]}},
+                {"type": "assistant", "message": {"content": [
+                    {"type": "text", "text": "第二段"},
+                    {"type": "tool_use", "name": "Bash", "input": {}},
+                ]}},
+            ]
+        elif cli == "codex":
+            events = [
+                {"type": "item.completed", "item": {"type": "agent_message", "text": "codex第一段"}},
+                {"type": "item.completed", "item": {"type": "reasoning", "text": "内部思考不流式"}},
+                {"type": "item.completed", "item": {"type": "command_execution", "command": "ls"}},
+            ]
+        else:  # cursor
+            events = [
+                {"type": "assistant", "message": {"content": [{"type": "text", "text": "cursor第一段"}]}},
+                {"type": "assistant", "message": {"content": [{"type": "text", "text": "cursor第二段"}]}},
+            ]
+        return "\n".join(json.dumps(e) for e in events).encode("utf-8")
+
+    @pytest.mark.parametrize(
+        "agent, expected_chunks",
+        [
+            (AGENT_CICI, ["第一段", "第二段"]),
+            (AGENT_COCO, ["codex第一段"]),
+            (AGENT_SOSO, ["cursor第一段", "cursor第二段"]),
+        ],
+        ids=["claude", "codex", "cursor"],
+    )
+    async def test_on_stream_receives_text_chunks(self, monkeypatch, agent, expected_chunks):
+        """on_stream 回调逐段收到 agent 文本（段落级流式的基础）。"""
+        runner = AgentRunner(IntegrationTestConfig())
+        chunks: list[str] = []
+
+        async def fake_exec(*args, **kwargs):
+            return self._make_fake_process(self._fake_process_for_cli(agent.cli))
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+        result = await runner.run(
+            agent, AgentTask(prompt=HELLO_PROMPT), on_stream=chunks.append,
+        )
+
+        assert chunks == expected_chunks, f"{agent.name} 流式段落不匹配"
+        # 完整结果仍然解析出来（流式不影响最终输出）
+        assert result.output.strip()
+
     @pytest.mark.slow
     async def test_claude_live_json_token_usage(self, runner):
         skip_if_not_ready_for_real_call(AGENT_CICI)

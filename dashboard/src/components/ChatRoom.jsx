@@ -166,6 +166,28 @@ export default function ChatRoom({ wsMessages, connectionStatus, sessionId }) {
       } else if (m.type === 'message') {
         const d = m.data || {}
         adds.push({ id: d.id || `bm-${Date.now()}`, kind: 'system', agent: d.from || 'system', content: `${d.from || '?'} → ${d.to || 'all'}: ${d.content || ''}`, timestamp: d.timestamp || new Date().toISOString() })
+      } else if (m.type === 'chat_stream') {
+        // 段落级流式：增量按 mid 追加到同一气泡，done 事件用完整内容替换
+        const d = m.data || {}
+        if (!d.mid) return
+        const mid = d.mid
+        setChatMessages((prev) => {
+          const idx = prev.findIndex(p => p.id === mid)
+          if (idx >= 0) {
+            const next = [...prev]
+            next[idx] = {
+              ...next[idx],
+              content: d.done ? d.content : next[idx].content + d.content,
+              streaming: !d.done,
+            }
+            return next
+          }
+          return [...prev, {
+            id: mid, kind: 'agent', agent: d.agent || 'agent',
+            content: d.content || '', streaming: !d.done,
+            timestamp: d.timestamp || new Date().toISOString(),
+          }]
+        })
       }
     }
     if (adds.length > 0) setChatMessages(p => [...p, ...adds])

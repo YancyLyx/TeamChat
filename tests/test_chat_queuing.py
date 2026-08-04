@@ -113,3 +113,96 @@ class TestGreetingSkip:
         assert resp.status_code == 200
         assert resp.json()["status"] == "greeting_broadcast"
         runner._run.assert_not_called()  # 忙的 agent 不 spawn
+
+
+class TestChatStreaming:
+    """聊天室气泡段落级流式：增量 chat_stream + done 完整事件（cici咪 2026-08-03）。"""
+
+    @staticmethod
+    def _stream_events(client_app):
+        """从 ws_mgr.broadcast 调用记录里过滤 chat_stream 事件。"""
+        calls = client_app.state.ws_manager.broadcast.await_args_list
+        return [c.args[0] for c in calls if c.args[0].get("type") == "chat_stream"]
+
+    def test_mention_reply_streams_chunks_then_done(self, client):
+        c, tt, router, runner = client
+        router.is_busy.return_value = False  # coco咪 空闲 → 直接 spawn 流式
+
+        async def fake_run(agent, task, use_continue=False, session_id=None,
+                           on_stream=None, **kwargs):
+            await on_stream("第一段")
+            await on_stream("第二段")
+            return AgentResult(
+                agent_name=agent.name, task_prompt=task.full_prompt(),
+                output="第一段\n第二段", exit_code=0, duration_ms=10,
+            )
+
+        runner._run = fake_run
+
+        resp = c.post("/api/chat", json={
+            "content": "@coco咪 流式测试", "teamchat_session_id": 1,
+        })
+
+        assert resp.status_code == 200
+        events = self._stream_events(c.app)
+        assert len(events) == 3  # 2 增量 + 1 done
+        mids = {e["data"]["mid"] for e in events}
+        assert len(mids) == 1  # 同一 mid → 前端粘到同一气泡
+        chunks = [e["data"]["content"] for e in events if not e["data"].get("done")]
+        assert chunks == ["第一段", "第二段"]
+        done = [e for e in events if e["data"].get("done")][0]
+        assert done["data"]["content"] == "第一段\n第二段"  # 完整输出兜底
+
+    def test_greeting_streams_each_agent(self, client):
+        c, tt, router, runner = client
+        router.is_busy.return_value = False
+
+        async def fake_run(agent, task, use_continue=False, session_id=None,
+                           on_stream=None, **kwargs):
+            await on_stream(f"{agent.name}回复")
+            return AgentResult(
+                agent_name=agent.name, task_prompt=task.full_prompt(),
+                output=f"{agent.name}回复", exit_code=0, duration_ms=10,
+            )
+
+        runner._run = fake_run
+
+        resp = c.post("/api/chat", json={
+            "content": "大家好", "teamchat_session_id": 1,
+        })
+
+        assert resp.status_code == 200
+        events = self._stream_events(c.app)
+        # 3 个 agent × (1 增量 + 1 done)
+        done_events = [e for e in events if e["data"].get("done")]
+        assert len(done_events) == 3
+        agents = {e["data"]["agent"] for e in done_events}
+        assert agents == {"cici咪", "coco咪", "soso咪"}
+
+    def test_analysis_streams_cici_reply(self, client):
+        c, tt, router, runner = client
+        router.is_busy.return_value = False
+
+        async def fake_run(agent, task, use_continue=False, session_id=None,
+                           on_stream=None, **kwargs):
+            await on_stream("分析中...")
+            return AgentResult(
+                agent_name=agent.name, task_prompt=task.full_prompt(),
+                output="分析结论：建议创建 2 个任务", exit_code=0, duration_ms=10,
+            )
+
+        runner._run = fake_run
+
+        resp = c.post("/api/chat", json={
+            "content": "帮我看看这个需求", "teamchat_session_id": 1,
+        })
+
+        assert resp.status_code == 200
+        events = self._stream_events(c.app)
+        assert len(events) == 2  # 增量 + done
+        done = [e for e in events if e["data"].get("done")][0]
+        assert done["data"]["agent"] == "cici咪"
+        assert done["data"]["content"] == "分析结论：建议创建 2 个任务"
+        # 落库先于 done（数据完整性）
+        log_call = c.app.state.store.log
+        assert log_call.call_count >= 2  # human 消息 + cici咪 分析

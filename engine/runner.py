@@ -200,8 +200,13 @@ class AgentRunner:
         env["GIT_COMMITTER_EMAIL"] = agent.git_email
         return env
 
-    async def _read_claude_stream(self, process, timeout: float, agent: AgentIdentity):
-        """Read Claude stdout line-by-line, handling control_request (approval) mid-stream."""
+    async def _read_claude_stream(self, process, timeout: float, agent: AgentIdentity,
+                                  on_chunk=None):
+        """Read Claude stdout line-by-line, handling control_request (approval) mid-stream.
+
+        on_chunk(text): optional async callback invoked for each assistant
+        text segment as it arrives — powers chat-bubble streaming (段落级流式).
+        """
         from api.routes.approval import register_approval, clear_approval
 
         buffer = ""
@@ -235,6 +240,19 @@ class AgentRunner:
                     evt = json.loads(line_str.strip())
                 except json.JSONDecodeError:
                     continue
+
+                # 流式回调：assistant 事件的 text 段落一到就推送（不阻塞持久化）
+                if evt.get("type") == "assistant" and on_chunk is not None:
+                    text = "\n".join(
+                        item.get("text", "")
+                        for item in evt.get("message", {}).get("content", [])
+                        if isinstance(item, dict)
+                        and item.get("type") == "text" and item.get("text")
+                    )
+                    if text:
+                        res = on_chunk(text)
+                        if asyncio.iscoroutine(res):
+                            await res
 
                 if evt.get("type") != "control_request":
                     continue
@@ -285,6 +303,88 @@ class AgentRunner:
 
         return buffer.encode("utf-8"), stderr_buffer.encode("utf-8")
 
+    async def _read_jsonl_stream(self, process, timeout: float, agent: AgentIdentity,
+                                 on_chunk=None, cli: str = "codex"):
+        """Read codex/cursor JSONL stdout line-by-line, invoking on_chunk per agent-text event.
+
+        Mirrors _read_claude_stream (kill + re-raise on timeout) so non-claude
+        agents get the same streaming + timeout semantics.
+        """
+        stderr_buffer = ""
+
+        async def read_stderr():
+            nonlocal stderr_buffer
+            if process.stderr:
+                while True:
+                    line = await process.stderr.readline()
+                    if not line:
+                        break
+                    stderr_buffer += line.decode("utf-8", errors="replace")
+
+        stderr_task = asyncio.create_task(read_stderr())
+        buffer = ""
+        try:
+            while True:
+                line = await asyncio.wait_for(
+                    process.stdout.readline(), timeout=timeout
+                )
+                if not line:
+                    break
+                line_str = line.decode("utf-8", errors="replace")
+                buffer += line_str
+                if on_chunk is not None and line_str.strip().startswith("{"):
+                    text = self._extract_jsonl_text(line_str, cli)
+                    if text:
+                        res = on_chunk(text)
+                        if asyncio.iscoroutine(res):
+                            await res
+        except asyncio.TimeoutError:
+            logger.error(f"⏰ {agent.name} stream timeout after {timeout}s")
+            try:
+                process.kill()
+                await process.wait()
+            except Exception:
+                pass
+            raise
+        finally:
+            stderr_task.cancel()
+
+        if process.stdin:
+            closer = getattr(process.stdin, "close", None)
+            is_closing = getattr(process.stdin, "is_closing", None)
+            if callable(closer) and not (is_closing() if callable(is_closing) else False):
+                closer()
+        await process.wait()
+        return buffer.encode("utf-8"), stderr_buffer.encode("utf-8")
+
+    @staticmethod
+    def _extract_jsonl_text(line_str: str, cli: str) -> str:
+        """Extract agent-visible text from one codex/cursor JSONL event line."""
+        try:
+            raw = json.loads(line_str.strip())
+        except (json.JSONDecodeError, TypeError):
+            return ""
+        if not isinstance(raw, dict):
+            return ""
+        if cli == "cursor":
+            if raw.get("type") != "assistant":
+                return ""
+            parts = [
+                item.get("text", "")
+                for item in raw.get("message", {}).get("content", []) or []
+                if isinstance(item, dict) and item.get("type") == "text" and item.get("text")
+            ]
+            return "\n".join(parts)
+        # codex: item.completed 事件里的 agent 文本
+        item = raw.get("item") or raw.get("data") or {}
+        if not isinstance(item, dict):
+            return ""
+        from engine.codex_events import is_codex_agent_message, is_codex_reasoning
+        if not is_codex_agent_message(item) or is_codex_reasoning(item):
+            return ""
+        from engine.codex_events import codex_item_text
+        return codex_item_text(item)
+
     def _get_stats(self, name: str) -> RunnerStats:
         if name not in self.stats:
             self.stats[name] = RunnerStats(agent_name=name)
@@ -308,9 +408,11 @@ class AgentRunner:
         return result
 
     async def run(self, agent: AgentIdentity, task: AgentTask,
-                  working_dir: Path | None = None) -> AgentResult:
+                  working_dir: Path | None = None,
+                  on_stream=None) -> AgentResult:
         """Execute a one-shot task (no session context)."""
-        return await self._run(agent, task, working_dir, use_continue=False)
+        return await self._run(agent, task, working_dir, use_continue=False,
+                               on_stream=on_stream)
 
     async def reset_session(self, agent: AgentIdentity):
         """Forget session context for an agent (next call starts fresh)."""
@@ -319,7 +421,8 @@ class AgentRunner:
     async def _run(self, agent: AgentIdentity, task: AgentTask,
                    working_dir: Path | None = None,
                    use_continue: bool = False,
-                   session_id: str | None = None) -> AgentResult:
+                   session_id: str | None = None,
+                   on_stream=None) -> AgentResult:
         """
         Execute a task on a specific agent CLI.
 
@@ -329,6 +432,8 @@ class AgentRunner:
             working_dir: Working directory for the subprocess (default: project root)
             use_continue: If True, use --continue/resume template for session context
             session_id: Explicit CLI session ID to resume (TeamChat session binding)
+            on_stream: Optional async callback (text) — invoked per agent text
+                segment as it streams in (chat-bubble 段落级流式).
         """
         cmd = self.config.get_cli_command(
             agent, task.full_prompt(),
@@ -356,12 +461,12 @@ class AgentRunner:
             if agent.cli == "claude":
                 # Line-by-line: handle control_request (approval) mid-stream
                 stdout, stderr = await self._read_claude_stream(
-                    process, task.timeout_seconds, agent
+                    process, task.timeout_seconds, agent, on_chunk=on_stream
                 )
             else:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=task.timeout_seconds,
+                stdout, stderr = await self._read_jsonl_stream(
+                    process, task.timeout_seconds, agent,
+                    on_chunk=on_stream, cli=agent.cli,
                 )
         except asyncio.TimeoutError:
             logger.error(f"⏰ {agent.name} timed out after {task.timeout_seconds}s")

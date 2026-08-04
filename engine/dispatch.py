@@ -30,11 +30,17 @@ async def spawn_with_session(
     runner: AgentRunner,
     session_store: SessionStore,
     teamchat_session_id: int,
+    on_stream=None,
 ) -> AgentResult:
-    """Spawn agent: resume stored CLI session ID, or cold-start and capture it."""
+    """Spawn agent: resume stored CLI session ID, or cold-start and capture it.
+
+    on_stream: optional async callback (text) forwarded to runner._run for
+    chat-bubble streaming (段落级流式).
+    """
     sid = session_store.get_agent_session_id(teamchat_session_id, agent.cli)
     result = await runner._run(
         agent, task, use_continue=bool(sid), session_id=sid or None,
+        on_stream=on_stream,
     )
     if result.cli_session_id and not sid:
         # Cold start: capture the fresh thread and restart its use count.

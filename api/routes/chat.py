@@ -7,6 +7,7 @@ Unaddressed messages go to cici咪 for analysis per spec.
 
 import asyncio
 import logging
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
@@ -18,6 +19,33 @@ from engine.message_parser import parse_message, build_cici_analysis_prompt
 from engine.runner import AgentTask, AgentResult
 
 GREETING_KEYWORDS = {"大家好", "hello", "hi", "在吗", "有人在吗", "你好", "你们好", "嗨"}
+
+
+def _stream_cb(ws_mgr, mid: str, agent_name: str, now: str):
+    """Build the on_chunk callback: broadcast each streamed text segment.
+
+    流式增量是预览（chat_stream），最终数据由 store.log 完整落库 +
+    _stream_done 完成事件兜底，WS 抖动不丢数据。
+    """
+    async def on_chunk(text: str) -> None:
+        await ws_mgr.broadcast({
+            "type": "chat_stream",
+            "data": {"mid": mid, "agent": agent_name, "content": text,
+                     "timestamp": now},
+        })
+    return on_chunk
+
+
+async def _stream_done(ws_mgr, mid: str, agent_name: str, content: str, now: str):
+    """Broadcast the terminal stream event with the FULL output.
+
+    前端收到 done 后用完整 content 替换流式气泡 —— 数据完整性的兜底。
+    """
+    await ws_mgr.broadcast({
+        "type": "chat_stream",
+        "data": {"mid": mid, "agent": agent_name, "content": content,
+                 "done": True, "timestamp": now},
+    })
 
 
 async def _drain_relay(request) -> None:
@@ -111,9 +139,11 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
             engine_log.info(f"🚀 Spawning {agent.name} ({agent.cli}) | session={teamchat_session_id}")
             router.mark_busy(agent)
             task = AgentTask(prompt=greeting_msg, timeout_seconds=60)
+            mid = f"chat-{uuid.uuid4().hex[:8]}"
             try:
                 result = await spawn_with_session(agent, task, runner,
-                    session_store, teamchat_session_id)
+                    session_store, teamchat_session_id,
+                    on_stream=_stream_cb(ws_mgr, mid, agent.name, now))
             finally:
                 router.mark_free(agent)
                 if agent == AGENT_CICI:
@@ -128,16 +158,8 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
                 teamchat_session_id=teamchat_session_id,
                 started_at=result.started_at, finished_at=result.finished_at,
             )
-            # Broadcast as soon as this agent replies
-            await ws_mgr.broadcast({
-                "type": "chat_message",
-                "data": {
-                    "kind": "agent_reply",
-                    "agent": agent.name,
-                    "content": result.output,
-                    "timestamp": now,
-                },
-            })
+            # Broadcast as soon as this agent replies — 流式 done 事件（完整内容）
+            await _stream_done(ws_mgr, mid, agent.name, result.output, now)
 
         await asyncio.gather(
             greet_one(AGENT_CICI),
@@ -190,10 +212,12 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
         tasks_before = {t.id for t in task_table.list_tasks()}
 
         engine_log.info(f"🤔 No @mention → spawning cici咪 for analysis")
+        mid = f"chat-{uuid.uuid4().hex[:8]}"
         try:
             result = await spawn_with_session(
                 AGENT_CICI, AgentTask(prompt=analysis_prompt, timeout_seconds=120),
                 runner, session_store, teamchat_session_id,
+                on_stream=_stream_cb(ws_mgr, mid, AGENT_CICI.name, now),
             )
         finally:
             router.mark_free(AGENT_CICI)
@@ -213,12 +237,8 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
         # 判断 cici咪 是否真的创建了新任务（用于准确的系统提示，修复"说没建却显示已建"）
         new_tasks = [t for t in task_table.list_tasks() if t.id not in tasks_before]
 
-        # Show cici咪's output in chat bubble — 完整输出，不截断（用户要求）
-        await ws_mgr.broadcast({
-            "type": "chat_message",
-            "data": {"kind": "agent_reply", "agent": "cici咪", "content": analysis, "timestamp": now},
-        })
         # 持久化 cici咪 分析回复（修复：重启/刷新后历史丢失咪的输出）
+        # 流式：done 事件在 store.log 之后，保证落库先于完成通知
         store.log(
             agent_name="cici咪", prompt=analysis_prompt,
             output=analysis, exit_code=result.exit_code,
@@ -228,6 +248,8 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
             teamchat_session_id=teamchat_session_id,
             started_at=result.started_at, finished_at=result.finished_at,
         )
+        # Show cici咪's output in chat bubble — 完整输出，不截断（用户要求）
+        await _stream_done(ws_mgr, mid, AGENT_CICI.name, analysis, now)
 
         # The TaskScheduler (background loop) picks up unblocked tasks and dispatches them —
         # no synchronous dispatch here (ADR-003 中枢模式: Engine 派发, cici咪 决策).
@@ -295,10 +317,12 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
         "data": {"agent": target.name, "prompt": clean[:200], "timestamp": now},
     })
 
+    mid = f"chat-{uuid.uuid4().hex[:8]}"
     try:
         task = AgentTask(prompt=clean)
         result = await spawn_with_session(
             target, task, runner, session_store, teamchat_session_id,
+            on_stream=_stream_cb(ws_mgr, mid, target.name, now),
         )
 
         call_id = store.log(
@@ -316,11 +340,8 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
                      "success": result.success, "duration_ms": result.duration_ms,
                      "output_preview": result.output[:200], "timestamp": now},
         })
-        await ws_mgr.broadcast({
-            "type": "chat_message",
-            "data": {"kind": "agent_reply", "agent": target.name, "content": result.output,
-                     "timestamp": now, "session_id": call_id},
-        })
+        # 流式 done 事件（完整输出，替换流式气泡）— store.log 已先落库
+        await _stream_done(ws_mgr, mid, target.name, result.output, now)
 
         return ChatResponse(session_id=call_id, target_agent=target.name,
                             task_prompt=clean, status="completed" if result.success else "failed")
