@@ -107,6 +107,7 @@ Phase: ADR-005 Phase 4.0 **端到端验证通过**（2026-08-01 本地）。协�
 | 数据库优化: agent_calls 大文本外置（prompt/output 存文件）+ 历史归档（阈值 ~10 万行触发，现无需急） | cici咪 | 低 |
 | chat.py is_busy 排队路径测试（@agent 排队/无@mention 排队/greeting 跳过） | cici咪 | 中 |
 | **终止正在执行的 agent（用户紧急/跑偏时 kill）**：现放弃按钮只改状态杀不掉进程，输出仍回流审核。方案：AgentRunner 进程注册表 + `POST /api/tasks/{id}/abort` + scheduler 派发前检查 + 前端 running 显示"终止"。chat.py 直接 spawn 路径本轮不覆盖 | cici咪 | 高 |
+| ~~#96 并行派发~~ ✅ 已完成（2026-08-04）：ADR-006 设计 → 实现（_poll_once + gather + 按 agent 去重）→ 单测 3 个 → soso咪 审查 Pass → e2e 验收 PASS（A、B 并行 running，C 依赖门控正确）。commit：3a8dbee/225bee3，本地攒批未 push | cici咪 | - |
 | ~~聊天室气泡段落级流式~~ ✅ 已实现（2026-08-03，本地未 push）：runner 逐行读 + `on_stream` 回调（claude/codex/cursor 三 CLI 统一），chat.py 三条路径（greeting/分析/回复）广播 `chat_stream` 增量事件，done 事件带完整输出兜底；前端按 mid 聚合气泡。数据完整性：store.log 先落库再发 done，WS 抖动只丢预览不丢数据。178 passed | cici咪 | - |
 | ~~codex 写文件权限~~ ✅ 已修复（#12，代码已改+冒烟验证，待 review 合并） | cici咪 | - |
 | 测试批跑顺序污染：15 失败（task_scheduler/claude_approval_stream/unicode_api；单测通过、批跑失败），待排查 | soso咪 | 中 |

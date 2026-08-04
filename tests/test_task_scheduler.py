@@ -666,3 +666,61 @@ class TestParallelDispatch:
         # 铁律：引擎不标 done/failed，失败任务保持 running 等 cici咪 审核决策
         assert bad.status == "running"
         assert bad.retry_count == 3
+
+
+class TestParallelDispatchCoverage:
+    """soso咪 审查建议补充：#96 并行派发缺口覆盖。"""
+
+    def _scheduler(self, task_table, mock_runner):
+        from engine.router import Router
+        result_relay = AsyncMock()
+        router = Router()
+        store = MagicMock()
+        session_store = MagicMock()
+        session_store.get_agent_session_id.return_value = "sid"
+        return TaskScheduler(
+            mock_runner, router, task_table, session_store, store, result_relay,
+        )
+
+    async def test_three_agents_same_poll(self, task_table, mock_runner):
+        """三个 agent 各 1 个 unblocked 任务 → 同一轮全部并行启动。"""
+        import asyncio
+
+        started = []
+        async def fake_run(agent, task, use_continue=False, session_id=None,
+                           on_stream=None, **kwargs):
+            started.append(agent.name)
+            await asyncio.sleep(0.02)
+            return _make_result(agent_name=agent.name)
+
+        mock_runner._run = fake_run
+        from engine.config import AGENT_CICI
+        task_table.create(agent="coco咪", title="A", description="任务A")
+        task_table.create(agent="soso咪", title="B", description="任务B")
+        task_table.create(agent="cici咪", title="C", description="任务C")
+
+        scheduler = self._scheduler(task_table, mock_runner)
+        await scheduler._poll_once()
+
+        assert sorted(started) == ["cici咪", "coco咪", "soso咪"]
+
+    async def test_dispatch_post_spawn_error_isolated(self, task_table, mock_runner):
+        """_dispatch 在 spawn 之后抛错（store.log 异常）→ return_exceptions 吸收，_poll_once 不炸。"""
+        async def fake_run(agent, task, use_continue=False, session_id=None,
+                           on_stream=None, **kwargs):
+            return _make_result(agent_name=agent.name)
+
+        mock_runner._run = fake_run
+        scheduler = self._scheduler(task_table, mock_runner)
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("store.log 崩溃")
+
+        scheduler.store.log.side_effect = boom  # 所有任务的 store.log 都抛错
+        task_table.create(agent="coco咪", title="BAD", description="BAD")
+        task_table.create(agent="soso咪", title="OK", description="正常任务")
+
+        await scheduler._poll_once()  # 不应抛异常——两个 _dispatch 的异常都被 gather 吸收
+
+        # store.log 抛错发生在 relay 之前 → 两个任务都没 relay（异常被隔离，不吞不炸）
+        assert scheduler.result_relay.relay.await_count == 0
