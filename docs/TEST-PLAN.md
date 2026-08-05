@@ -15,7 +15,7 @@
 ### 范围外
 
 - 真实 GitHub push / PR / merge / webhook 联调（当前 GitHub 账号暂停，使用 mock 或单元级验证）。
-- Tasks 看板 Tab 已接入（2026-08-03，设计见 ADR-005）。
+- Tasks 看板 Tab 已接入（2026-08-03，设计见 ADR-004）。
 - 真实 CLI 长任务或高成本 AI 调用，仅作为可选的 smoke 测试。
 
 ## 2. 测试策略
