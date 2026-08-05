@@ -939,6 +939,25 @@ B [coco咪] 前端开发: 看板 UI
 5. **排队**：cici咪 忙时（③）与 soso咪 忙时（⑤）——复用 relay 排队 + 同 agent 串行
 6. **审查节点是正式 DAG 节点**：feature_id 继承、可排队、可统计（需求树可见审查链路）
 
+### 需求树表现（L2 视图，2026-08-05 确认）
+
+审查/修复/复审节点**都是需求树的正式节点**（task_table 带 feature_id），L2 需求树随流程动态增长：
+
+```
+初始:      A(cici咪 引擎)        B(coco咪 前端)          ← 两个开发节点
+B done:    A                    B ─→ C1(soso咪 审查B)    ← cici咪 建 C1（依赖 B）
+A done:    A ─→ C2(审查A)       B ─→ C1                  ← cici咪 建 C2（依赖 A）
+C2 问题:   A ─→ C2 ─→ D(修复)   B ─→ C1                  ← cici咪 建 D（依赖 C2）
+D done:    A ─→ C2 ─→ D ─→ E(复审) B ─→ C1               ← cici咪 建 E（依赖 D）
+```
+
+**为什么不会乱**：
+1. **feature_id 自动继承**（task_table 归属规则 2）：`depends_on` 非空 → 自动继承依赖任务的 feature_id——cici咪 只要 depends_on 传对被审节点，审查节点自动挂到同一棵需求树，**无需显式传 feature_id**
+2. **depends_on 定拓扑**：C1 依赖 B、C2 依赖 A、D 依赖 C2、E 依赖 D——每个节点出现时依赖已定，DagGraph 按依赖分层渲染，树只长高不乱
+3. **可观测**：L2 需求树实时可见每个节点状态（running/done/abandoned），审查链路一目了然；若 cici咪 建节点时 depends_on 传错（挂错树/乱依赖），L2 立即暴露
+
+**防护**：审核 prompt 明确"创建审查节点必须 depends_on=[被审节点 id]，feature_id 自动继承"。
+
 ### 与 v3 的差异（为什么否决 v3）
 
 | | v3（初始预设审查节点） | v4（用户确认，done 时动态创建） |
