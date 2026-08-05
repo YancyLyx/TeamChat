@@ -301,8 +301,8 @@ class TestTaskScheduler:
         ws_manager.broadcast.assert_not_called()
 
 
-    async def test_cici_task_auto_done(self, task_table, mock_runner):
-        """cici咪 执行型任务完成后自动 done（无需审核自己，否则卡 running）。"""
+    async def test_cici_task_no_auto_done(self, task_table, mock_runner):
+        """#97 — cici咪 任务不再自动收尾：走 relay 排队进审核（不直接 done）。"""
         task = task_table.create(agent="cici咪", title="引擎修复", description="implement feature and verify result")
         mock_runner._run.return_value = _make_result(agent_name="cici咪")
         result_relay = AsyncMock()
@@ -317,10 +317,11 @@ class TestTaskScheduler:
         await scheduler._dispatch(task)
 
         updated = task_table.get(task.id)
-        assert updated.status == "done"  # 自动标记，不卡 running
-        result_relay.relay.assert_not_called()  # 不审核自己
+        assert updated.status == "running"  # 不自动 done——等 cici咪 审核（#97）
+        result_relay.relay.assert_awaited_once()  # 结果进审核队列（自我编排模式）
 
-    async def test_cici_task_failure_marks_failed(self, task_table, mock_runner):
+    async def test_cici_task_failure_no_auto_failed(self, task_table, mock_runner):
+        """#97 — cici咪 任务失败也不自动标 failed：走 relay，由 cici咪 审核决策。"""
         task = task_table.create(agent="cici咪", title="t", description="implement feature and verify result")
         mock_runner._run.return_value = _make_result(agent_name="cici咪", exit_code=1)
         result_relay = AsyncMock()
@@ -334,7 +335,8 @@ class TestTaskScheduler:
         )
         await scheduler._dispatch(task)
 
-        assert task_table.get(task.id).status == "failed"
+        assert task_table.get(task.id).status == "running"  # 引擎不标 failed（铁律 + #97）
+        result_relay.relay.assert_awaited_once()
 
 
     async def test_dispatch_logs_result_tool_calls(self, task_table, mock_runner):
@@ -453,19 +455,24 @@ class TestResultRelay:
         assert len(relay._pending) == 0
         mock_runner._run.assert_awaited_once()  # cici咪 review spawned
 
-    async def test_relay_cici_own_result_not_reviewed(self, task_table, mock_runner):
-        """cici咪's own task results are not pushed back to cici咪."""
+    async def test_relay_cici_own_result_queued(self, task_table, mock_runner):
+        """#97 — cici咪's own task results now queue for review (self-orchestration mode)."""
         router = MagicMock()
         router.is_busy.return_value = False
         session_store = MagicMock()
+        session_store.get_agent_session_id.return_value = "sid"
+        mock_runner._run.return_value = _make_result(agent_name="cici咪", output="ok")
 
         relay = ResultRelay(mock_runner, router, session_store, task_table)
         task = task_table.create(agent="cici咪", title="cici task", description="implement feature and verify result")
 
         await relay.relay(task, _make_result(agent_name="cici咪"))
 
-        assert len(relay._pending) == 0
-        mock_runner._run.assert_not_called()
+        # cici咪 空闲 → drain 立即审核（结果已处理，不再"只 drain 不审核"）
+        mock_runner._run.assert_awaited()
+        prompt = mock_runner._run.await_args.args[1].prompt
+        assert "类型=development" in prompt
+        assert "创建 soso咪 的审查节点" in prompt  # 自我编排模式引导
 
     async def test_relay_batches_multiple_queued_results(self, task_table, mock_runner):
         """When cici咪 goes idle, all queued results are reviewed in one spawn."""
@@ -724,3 +731,62 @@ class TestParallelDispatchCoverage:
 
         # store.log 抛错发生在 relay 之前 → 两个任务都没 relay（异常被隔离，不吞不炸）
         assert scheduler.result_relay.relay.await_count == 0
+
+
+class TestReviewClosure:
+    """#97 — 审核双模式：按 task_type 引导（development→审查节点 / review→验收 / fix→复审）。"""
+
+    def _relay(self, task_table, mock_runner, router_busy=False):
+        router = MagicMock()
+        router.is_busy.return_value = router_busy
+        session_store = MagicMock()
+        session_store.get_agent_session_id.return_value = "sid"
+        mock_runner._run.return_value = _make_result(agent_name="cici咪", output="ok")
+        return ResultRelay(mock_runner, router, session_store, task_table)
+
+    def _last_prompt(self, mock_runner) -> str:
+        return mock_runner._run.await_args.args[1].prompt
+
+    async def test_development_prompt_guides_review_node(self, task_table, mock_runner):
+        """development 任务（任何 agent）审核 prompt 引导创建 soso咪 审查节点。"""
+        relay = self._relay(task_table, mock_runner)
+        task = task_table.create(agent="coco咪", title="前端开发", description="实现看板 UI",
+                                 task_type="development")
+        await relay.relay(task, _make_result(agent_name="coco咪"))
+        prompt = self._last_prompt(mock_runner)
+        assert "类型=development" in prompt
+        assert "创建 soso咪 的审查节点" in prompt
+        assert "task_type='review'" in prompt
+
+    async def test_review_prompt_accepts_conclusion(self, task_table, mock_runner):
+        """review 节点（soso咪 的审查结论）不引导再建审查节点。"""
+        relay = self._relay(task_table, mock_runner)
+        task = task_table.create(agent="soso咪", title="审查B", description="审查B的开发",
+                                 task_type="review")
+        await relay.relay(task, _make_result(agent_name="soso咪"))
+        prompt = self._last_prompt(mock_runner)
+        assert "类型=review" in prompt
+        assert "审查节点本身是验证环节" in prompt  # review 分支：验收结论，不再触发审查
+        assert "不再为它创建审查节点" in prompt
+
+    async def test_fix_prompt_guides_verify_node(self, task_table, mock_runner):
+        """fix 节点审核 prompt 引导创建 soso咪 复审节点（verify）。"""
+        relay = self._relay(task_table, mock_runner)
+        task = task_table.create(agent="cici咪", title="修复C2问题", description="修复两处问题",
+                                 task_type="fix")
+        await relay.relay(task, _make_result(agent_name="cici咪"))
+        prompt = self._last_prompt(mock_runner)
+        assert "类型=fix" in prompt
+        assert "创建 soso咪 的复审节点" in prompt
+        assert "task_type='verify'" in prompt
+
+    async def test_cici_dev_task_self_orchestration(self, task_table, mock_runner):
+        """cici咪 自己的 development 任务：排队审核 + 自我编排模式引导。"""
+        relay = self._relay(task_table, mock_runner)
+        task = task_table.create(agent="cici咪", title="引擎开发", description="实现 stats API",
+                                 task_type="development")
+        await relay.relay(task, _make_result(agent_name="cici咪"))
+        prompt = self._last_prompt(mock_runner)
+        assert "类型=development" in prompt
+        assert "含你自己的任务" in prompt  # 自我编排模式明示
+        assert "创建 soso咪 的审查节点" in prompt

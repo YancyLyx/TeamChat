@@ -47,13 +47,15 @@ def handle_create_task(args: dict) -> dict:
     prompt = args.get("prompt", "")
     depends_on = args.get("depends_on", [])
     feature_id = args.get("feature_id")
+    task_type = args.get("task_type", "development")  # #97: development/review/fix/verify
 
     if not agent or not title:
         return {"error": "agent and title are required"}
 
     tt = _get_task_table()
     task = tt.create(agent=agent, title=title, description=prompt,
-                     depends_on=depends_on, feature_id=feature_id)
+                     depends_on=depends_on, feature_id=feature_id,
+                     task_type=task_type)
     logger.info(f"📝 create_task: #{task.id} '{title}' → {agent} "
                 f"(deps={depends_on}, feature={task.feature_id})")
 

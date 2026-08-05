@@ -44,12 +44,8 @@ class ResultRelay:
         retries: how many automatic retries the scheduler performed before this
         result — surfaced to cici咪 in the review prompt.
         """
-        # cici咪's own results are not reviewed by itself; but after cici咪 finishes,
-        # there may be queued results to drain.
-        if task.agent == "cici咪":
-            await self.drain_if_idle()
-            return
-
+        # #97: cici咪 任务不再跳过——排队进审核（自我编排模式，她审自己的
+        # 结果时被引导创建 soso咪 审查节点；不再"只 drain 不审核"）。
         self._pending.append((task, result, retries))
         logger.info(
             f"📨 Result #{task.id} ({task.agent}) pending review, "
@@ -137,7 +133,7 @@ class ResultRelay:
         ]
         for task, result, retries in batch:
             status = "成功" if result.success else "失败"
-            parts.append(f"## 任务 #{task.id}「{task.title}」(指派给 {task.agent})")
+            parts.append(f"## 任务 #{task.id}「{task.title}」(指派给 {task.agent}，类型={task.task_type})")
             parts.append(f"执行状态: {status} (exit_code={result.exit_code})")
             if retries:
                 parts.append(f"（引擎已自动重试 {retries} 次后仍{'失败' if not result.success else '成功'}）")
@@ -147,6 +143,20 @@ class ResultRelay:
             parts.append(result.output)
             parts.append("")
         parts.extend([
+            "## 节点类型与下一步（#97 审查闭环，务必按类型执行）:",
+            "任务类型 = task_type 字段，取值 development（开发）/ review（审查）/ fix（修复）/ verify（复审）。",
+            "- development（开发节点，含你自己的任务）: 审核产出 → update_task(status=done) 标记完成",
+            "  → **必须** 创建 soso咪 的审查节点: mcp__teamchat__create_task(",
+            "    agent='soso咪', task_type='review', title=<审查任务标题>, prompt=<基于刚看到的",
+            "    真实产出写审查点: 代码改动/AC 对照/测试要求>, depends_on=[<本任务id>])",
+            "  → 不要直接收尾了事——开发产出必须经 soso咪 独立审查（这是 #97 的强制流程）",
+            "- review / verify（审查/复审节点，soso咪 的验证产出）: 审核 soso咪 的审查结论",
+            "  → 通过: update_task(status=done)；发现问题: 创建修复任务",
+            "  → 审查节点本身是验证环节，不再为它创建审查节点",
+            "- fix（修复节点）: 审核修复产出 → update_task(status=done)",
+            "  → **必须** 创建 soso咪 的复审节点: create_task(agent='soso咪', task_type='verify',",
+            "    title=<复审标题>, prompt=<基于修复产出 + 原问题写复审点>, depends_on=[<本任务id>])",
+            "",
             "## 请对每个任务：",
             "1. 审核输出，判断是否真正完成",
             f"2. 调用 mcp__teamchat__update_task(task_id=<id>, status=\"done\" 或 \"failed\") 标记结果",

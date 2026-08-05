@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS task_table (
     retry_count INTEGER NOT NULL DEFAULT 0,
     last_error  TEXT    NOT NULL DEFAULT '',
     feature_id  INTEGER NOT NULL DEFAULT 0,
+    task_type   TEXT    NOT NULL DEFAULT 'development',
     FOREIGN KEY (teamchat_session_id) REFERENCES teamchat_sessions(id)
 );
 
@@ -56,6 +57,7 @@ class Task:
     retry_count: int = 0
     last_error: str = ""
     feature_id: int = 0  # 需求树标识：同一棵 DAG 树的节点共享（根任务的 id）
+    task_type: str = "development"  # development/review/fix/verify（#97 审查闭环节点类型）
 
     @property
     def is_blocked(self) -> bool:
@@ -78,6 +80,7 @@ class Task:
             "retry_count": self.retry_count,
             "last_error": self.last_error,
             "feature_id": self.feature_id,
+            "task_type": self.task_type,
         }
 
 
@@ -122,6 +125,10 @@ class TaskTable:
             self._conn.execute(
                 "ALTER TABLE task_table ADD COLUMN feature_id INTEGER NOT NULL DEFAULT 0"
             )
+        if "task_type" not in columns:
+            self._conn.execute(
+                "ALTER TABLE task_table ADD COLUMN task_type TEXT NOT NULL DEFAULT 'development'"
+            )
         self._conn.commit()
 
     def close(self):
@@ -134,7 +141,8 @@ class TaskTable:
     def create(self, agent: str, title: str, description: str = "",
                depends_on: list[int] | None = None,
                teamchat_session_id: int = 1,
-               feature_id: int | None = None) -> Task:
+               feature_id: int | None = None,
+               task_type: str = "development") -> Task:
         """Create a new task. Returns the created Task with ID.
 
         feature_id 归属规则（需求树标识）:
@@ -144,6 +152,7 @@ class TaskTable:
         """
         now = datetime.now(timezone.utc).isoformat()
         deps = depends_on or []
+        task_type = task_type if task_type in ("development", "review", "fix", "verify") else "development"
         # 归属计算
         fid = feature_id or 0
         if not fid and deps:
@@ -155,10 +164,10 @@ class TaskTable:
         self.conn.execute(
             """INSERT INTO task_table
                (teamchat_session_id, agent, title, description, status, depends_on,
-                created_at, feature_id)
-               VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)""",
+                created_at, feature_id, task_type)
+               VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)""",
             (teamchat_session_id, agent, title, description,
-             json.dumps(deps, ensure_ascii=False), now, fid),
+             json.dumps(deps, ensure_ascii=False), now, fid, task_type),
         )
         self.conn.commit()
         row_id = self.conn.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -181,7 +190,7 @@ class TaskTable:
         allowed = {"agent", "title", "description", "status",
                    "depends_on", "github_issue", "output_summary",
                    "started_at", "finished_at", "teamchat_session_id",
-                   "retry_count", "last_error", "feature_id"}
+                   "retry_count", "last_error", "feature_id", "task_type"}
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
             return
@@ -374,6 +383,7 @@ class TaskTable:
             retry_count=row[11 + offset] if len(row) > 11 + offset else 0,
             last_error=row[12 + offset] if len(row) > 12 + offset else "",
             feature_id=row[13 + offset] if len(row) > 13 + offset else 0,
+            task_type=row[14 + offset] if len(row) > 14 + offset else "development",
         )
 
 

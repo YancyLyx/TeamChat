@@ -211,17 +211,9 @@ class TaskScheduler:
             if fixed:
                 logger.info(f"🔧 Fixed {fixed} cici咪-created task(s) session")
 
-        # cici咪 的执行型任务（分析/引擎修复/收尾）：她是决策者+执行者，
-        # 执行完即完成，无需审核自己（relay 对 cici咪 任务只 drain 不审核，
-        # 否则任务永久卡 running — 用户报告 #20 卡住）。
-        if task.agent == "cici咪":
-            self.task_table.update(
-                task.id,
-                status="done" if result.success else "failed",
-                output_summary=result.output[:500],
-            )
-            logger.info(f"✅ cici咪 任务 #{task.id} 自动标记 {'done' if result.success else 'failed'}")
-            return
+        # #97: cici咪 任务不再自动收尾（exit_code 收尾无独立验证，假完成漏洞来源）。
+        # 统一走 relay——cici咪 的结果也会排队进审核（自我编排模式，引导创建
+        # soso咪 审查节点），由她基于审查证据验收（ADR-004 #97 v4）。
 
         # Hand result to cici咪 for review — Engine does NOT mark done/failed.
         # Refresh task first so retry_count/last_error written during retries
