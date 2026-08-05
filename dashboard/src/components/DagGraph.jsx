@@ -112,10 +112,10 @@ export default function DagGraph({ nodes, height = 120 }) {
               className={running ? 'dag-running' : ''}>
               <title>{`#${n.id} ${n.title} (${n.agent}, ${n.status})`}</title>
             </circle>
-            {/* 标注：标题(agent)，agent 用 agent 色 */}
+            {/* 标注：只显示 #id（agent 由外圈颜色区分，不占文字空间） */}
             <text x={p.x + 10} y={p.y + 3} fontSize="8" fill={agentColor}
               fontFamily="monospace">
-              {(n.title || '').slice(0, 7)}{n.agent ? `(${n.agent})` : ''}
+              #{n.id}
             </text>
           </g>
         )

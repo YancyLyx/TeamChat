@@ -160,13 +160,11 @@ export default function StatsPanel({ agentMetrics = {}, l3Stats = null, sessionI
                     {features.filter((f) => f.running > 0 || f.pending > 0).map((f) => (
                       <div key={f.feature_id} className="bg-white border border-gray-100 rounded-lg p-2">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-[10px] font-semibold text-gray-700 truncate max-w-[70%]" title={f.title}>
-                            <span className="text-blue-500">🔄</span> {f.title}
-                          </span>
+                          <span className="text-[10px] font-semibold text-blue-500">🔄 运行中</span>
                           <span className="text-[10px] text-gray-400 font-mono">{f.total}节点 · {(f.completion_rate * 100).toFixed(0)}%</span>
                         </div>
                         {(f.nodes || []).length === 1 ? (
-                          <span className="text-[10px] font-mono text-gray-600">#{f.nodes[0].id} {f.nodes[0].title} · {f.nodes[0].status}</span>
+                          <span className="text-[10px] font-mono text-gray-600">#{f.nodes[0].id} ({f.nodes[0].agent}) · {f.nodes[0].status}</span>
                         ) : (
                           <DagGraph nodes={f.nodes || []} />
                         )}
