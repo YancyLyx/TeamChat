@@ -1,52 +1,54 @@
 # Phase 4: Autonomy (自治)
 
-**Status:** 🔴 In Progress
-**Date:** 2026-07-08
+**Status:** 🟢 进行中（核心闭环已完成，剩余项见下）
+**Date:** 2026-07-08（初稿）/ 2026-08-05（状态跟踪更新）
+**说明:** 本文件是 Phase 4 的**完成状态跟踪**（对照 `docs/decisions/` 的 ADR 逐项核对）；详细设计见 decisions 文档。
 
-## Goal
+---
 
-实现完整自治协作闭环 — 人类在聊天室里发消息，agent 自动执行、协作、交付。
+## 📁 对应 decisions 文档
 
-## Current State
-
-### ✅ Done
-
-| # | Task | Who |
+| ADR | 主题 | 状态 |
 |---|---|---|
-| 1 | 聊天室架构设计 | cici咪 |
-| 2 | 消息路由规则 (ADR-002) | cici咪 |
-| 3 | Chat-room Dashboard (MVP) | coco咪 |
-| 4 | `engine/message_parser.py` | cici咪 |
-| 5 | `api/routes/chat.py` (basic) | cici咪 |
-| 6 | Chat-room E2E tests (4 tests) | soso咪 |
+| `001-tech-stack.md` | Python/FastAPI/React/SQLite 技术栈 | ✅ 落地 |
+| `002-persistent-agent-architecture.md` | 常驻 workers 架构 | ❌ **已 revert**（218fa56）——被 ADR-003 取代 |
+| `003-real-cli-workflow.md` | 真实 CLI 一次性进程 + stream-json | ✅ 落地（当前架构） |
+| `004-phase4-complete.md` | Phase 4 完整规划（含 #96 并行派发、#97 审查闭环设计） | 🔄 实施中 |
 
-### 🔴 Remaining (ADR-002 implementation)
+---
 
-| # | Task | Who |
+## ✅ 已完成（对应 decisions 章节）
+
+| 功能 | 对应 ADR-004 章节 / 追踪编号 | 验收 |
 |---|---|---|
-| 1 | Persistent Agent Workers | cici咪 |
-| 2 | WorkerPool + 生命周期管理 | cici咪 |
-| 3 | 打招呼广播路由 | cici咪 |
-| 4 | CLI 输出解析 (THINKING/TOOL_CALLS/RESULT) | cici咪 |
-| 5 | 会话 Tag 隔离 (test vs prod) | cici咪 |
-| 6 | ChatRoom 折叠区 + 历史过滤 | coco咪 |
-| 7 | E2E 测试更新 | soso咪 |
+| 协作闭环（发消息 → 拆任务 → 派发 → 执行 → 回流 → 审核 → done） | 分段实施计划 Phase 4.0 | 端到端验证通过（2026-08-01） |
+| Result Relay 结果回传 + 排队审核 | 断点 1 | ✅ |
+| 依赖检查 + 自动派发（DAG） | 断点 2 | ✅（含 feature_id 需求树） |
+| 失败自动重试（3 次指数退避） | 断点 3 | ✅（Phase 4.5 自愈） |
+| 忙时排队（@mention/分析/greeting） | 完善点⑥ | ✅ |
+| 看板手动干预（重试/转派/放弃） | Phase 4.5 | ✅ |
+| Stats L1/L2/L3 观测面板 | ADR-004 规划 | ✅（L3 为 2026-08 新增） |
+| 审批卡（control_request） | ADR-003 §3.4 | ✅ |
+| 段落级流式输出 | 2026-08-03 新增 | ✅ |
+| **任务编排并行派发** | #96（ADR-004 附章节） | ✅ 审查 + 真实 e2e 通过（2026-08-04） |
 
-### ⏳ Future
+---
 
-| # | Task | Who |
+## 🔴 未完成（待办）
+
+| 功能 | 编号/文档 | 阻塞/优先级 |
 |---|---|---|
-| - | Conflict Resolver (辩论→投票→裁决) | cici咪 |
-| - | Git Worktree 隔离 | soso咪 |
-| - | MCP 接口（对外接入） | coco咪 |
-| - | 自愈机制（失败重试/转派） | soso咪 |
+| **cici咪 任务走 soso咪 审查**（cici咪 编排审查、soso咪 独立验证、修复后复审循环） | #97（ADR-004 设计章节，2026-08-05 Draft） | 设计中，等待确认后开发 |
+| 终止正在执行的 agent（kill 进程） | PROGRESS 待办 | 高（用户紧急/跑偏场景） |
+| Phase 4.1 GitHub Adapter（Issue 双向同步/Webhook） | ADR-004 规划 | ⏸ 阻塞于 GitHub 账号恢复 |
+| 数据库优化（agent_calls 大文本外置 + 10 万行归档） | PROGRESS 待办 | 低 |
+| Git Worktree 隔离（多 agent 共享工作区问题） | PROGRESS 教训记录 | 低（并发需求时实施） |
+| 冲突解决（辩论→投票→裁决） | 早期 roadmap | 未启动 |
+| MCP 对外接入 | 早期 roadmap | 未启动（MCP 已对内用，对外未做） |
 
-## Current Bugs
+---
 
-| Bug | Status |
-|---|---|
-| 消息显示两次 | ✅ Fixed (dedup by ID) |
-| 中文输入 Enter 误触发送 | ✅ Fixed (IME composition) |
-| cici咪 输出裸 JSON | ✅ Fixed (result field parsing) |
-| 无 @mention 没回复 | 🔴 等 ADR-002 Worker 实现后修复 |
-| 测试数据混入历史 | 🔴 等 session tagging |
+## 📌 历史备注
+
+- **ADR-002 常驻 workers 曾实现一半被整体 revert**（commit 218fa56）——早期试错，现架构为 ADR-003 一次性进程 + resume（详细取舍见 `interview/03 §3.2`）
+- 早期 Bug 清单（消息重复/IME/裸 JSON/无 @mention）均已修复，见 git 历史
