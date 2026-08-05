@@ -159,70 +159,51 @@ export default function StatsPanel({ agentMetrics = {}, l3Stats = null, sessionI
                   <p className="text-[10px] text-gray-400 text-center py-3">暂无需求树</p>
                 ) : (
                   <>
-                    {/* 进行中（有 running/pending 节点，或最近 60s 有活动——审核空窗不消失）→ DAG 图 */}
-                    {features.filter((f) => {
+                    {/* 平铺：所有树都在列表里，进行中展开 / 已完成折叠（树永不消失，#97） */}
+                    {features.map((f) => {
                       const active = f.running > 0 || f.pending > 0
-                      if (active) return true
-                      // 最近活动判定：树短暂全 done 但闭环未完成（cici咪 审核后、审查节点创建前）
-                      if (f.last_activity) {
-                        const t = new Date(f.last_activity).getTime()
-                        return Date.now() - t < 60_000
-                      }
-                      return false
-                    }).map((f) => (
-                      <div key={f.feature_id} className="bg-white border border-gray-100 rounded-lg p-2">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-[10px] font-semibold text-blue-500">🔄 运行中</span>
-                          <span className="text-[10px] text-gray-400 font-mono">{f.total}节点 · {(f.completion_rate * 100).toFixed(0)}%</span>
-                        </div>
-                        {(f.nodes || []).length === 1 ? (
-                          <span className="text-[10px] font-mono text-gray-600">#{f.nodes[0].id} ({f.nodes[0].agent}) · {f.nodes[0].status}</span>
-                        ) : (
-                          <DagGraph nodes={f.nodes || []} />
-                        )}
-                        <div className="flex flex-wrap gap-x-2 text-[9px] text-gray-400 font-mono mt-0.5">
-                          <span className="text-green-600">done {f.done}</span>
-                          <span className="text-red-600">failed {f.failed}</span>
-                          <span className="text-gray-500">放弃 {f.abandoned}</span>
-                          <span className="text-blue-600">running {f.running}</span>
-                          <span className="text-yellow-600">pending {f.pending}</span>
-                        </div>
-                      </div>
-                    ))}
-                    {/* 已完成（全 done/abandoned）→ 折叠列表（多节点在前，单节点聚合） */}
-                    {features.filter((f) => {
-                      if (f.running > 0 || f.pending > 0) return false
-                      if (f.last_activity) return Date.now() - new Date(f.last_activity).getTime() >= 60_000
-                      return true
-                    }).length > 0 && (() => {
-                      const done = features.filter((f) => {
-                        if (f.running > 0 || f.pending > 0) return false
-                        if (f.last_activity) return Date.now() - new Date(f.last_activity).getTime() >= 60_000
-                        return true
-                      })
-                      const multi = done.filter((f) => f.total >= 2)  // 有意义的 DAG 树
-                      const single = done.filter((f) => f.total === 1) // 独立单任务
-                      return (
-                      <details className="bg-white border border-gray-100 rounded-lg p-2">
-                        <summary className="text-[10px] text-gray-500 font-mono cursor-pointer select-none">
-                          ✅ 已完成（{multi.length} 需求树 · {single.length} 单任务）
-                        </summary>
-                        <div className="space-y-1 mt-1.5">
-                          {/* 多节点需求树：显示详情 */}
-                          {multi.map((f) => (
-                            <div key={f.feature_id} className="text-[10px] flex items-center justify-between">
-                              <span className="text-gray-600 truncate max-w-[70%]" title={f.title}>{f.title}</span>
-                              <span className="text-gray-400 font-mono">{f.total}节点 · {(f.completion_rate * 100).toFixed(0)}% · done {f.done} · 放弃 {f.abandoned}</span>
-                            </div>
-                          ))}
-                          {/* 单节点聚合：一行显示 */}
-                          {single.length > 0 && (
-                            <div className="text-[10px] text-gray-400 font-mono pt-0.5 border-t border-gray-100">
-                              {single.length} 个独立单任务（#{[...single].sort((a,b)=>b.feature_id-a.feature_id).slice(0,3).map(f=>f.feature_id).join(', #')}...）
-                            </div>
+                      return active ? (
+                        <div key={f.feature_id} className="bg-white border border-gray-100 rounded-lg p-2">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] font-semibold text-blue-500">🔄 运行中</span>
+                            <span className="text-[10px] text-gray-400 font-mono">{f.total}节点 · {(f.completion_rate * 100).toFixed(0)}%</span>
+                          </div>
+                          {(f.nodes || []).length === 1 ? (
+                            <span className="text-[10px] font-mono text-gray-600">#{f.nodes[0].id} ({f.nodes[0].agent}) · {f.nodes[0].status}</span>
+                          ) : (
+                            <DagGraph nodes={f.nodes || []} />
                           )}
+                          <div className="flex flex-wrap gap-x-2 text-[9px] text-gray-400 font-mono mt-0.5">
+                            <span className="text-green-600">done {f.done}</span>
+                            <span className="text-red-600">failed {f.failed}</span>
+                            <span className="text-gray-500">放弃 {f.abandoned}</span>
+                            <span className="text-blue-600">running {f.running}</span>
+                            <span className="text-yellow-600">pending {f.pending}</span>
+                          </div>
                         </div>
-                      </details>
+                      ) : (
+                        <details key={f.feature_id} className="bg-white border border-gray-100 rounded-lg p-2">
+                          <summary className="text-[10px] text-gray-500 font-mono cursor-pointer select-none flex items-center justify-between">
+                            <span className="text-green-600">✅ 已完成</span>
+                            <span>{f.total}节点 · {(f.completion_rate * 100).toFixed(0)}%</span>
+                          </summary>
+                          <div className="mt-1.5">
+                            {(f.nodes || []).length === 1 ? (
+                              <span className="text-[10px] font-mono text-gray-600">#{f.nodes[0].id} ({f.nodes[0].agent}) · {f.nodes[0].status}</span>
+                            ) : (
+                              <DagGraph nodes={f.nodes || []} />
+                            )}
+                            <div className="flex flex-wrap gap-x-2 text-[9px] text-gray-400 font-mono mt-0.5">
+                              <span className="text-green-600">done {f.done}</span>
+                              <span className="text-red-600">failed {f.failed}</span>
+                              <span className="text-gray-500">放弃 {f.abandoned}</span>
+                              <span className="text-blue-600">running {f.running}</span>
+                              <span className="text-yellow-600">pending {f.pending}</span>
+                            </div>
+                          </div>
+                        </details>
+                      )
+                    })}
                       )
                     })()}
                   </>
