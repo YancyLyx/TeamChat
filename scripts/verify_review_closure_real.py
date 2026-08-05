@@ -40,9 +40,11 @@ def main() -> int:
 
     a = tt.create(agent="cici咪", title="E2E-97-A", description=A_PROMPT,
                   teamchat_session_id=SESSION_ID, task_type="development")
+    # 同一需求树：并行分支显式传 a.feature_id（模拟 cici咪 拆任务行为）
     b = tt.create(agent="coco咪", title="E2E-97-B", description=B_PROMPT,
-                  teamchat_session_id=SESSION_ID, task_type="development")
-    print(f"已创建: #{a.id} A(cici咪 开发) / #{b.id} B(coco咪 开发)", flush=True)
+                  teamchat_session_id=SESSION_ID, task_type="development",
+                  feature_id=a.feature_id)
+    print(f"已创建: #{a.id} A(cici咪) / #{b.id} B(coco咪)（同一需求树 {a.feature_id}）", flush=True)
 
     started_at = time.monotonic()
     last_line = ""
@@ -92,14 +94,15 @@ def main() -> int:
     print(f"  验收点3 (审查节点完成回流): {'✅' if ok3 else '❌'}")
     print("验收结论:", "PASS ✅" if (ok1 and ok2 and ok3) else "INCOMPLETE ⚠️ 见上方状态")
 
-    # 清理：验收任务 → abandoned（保留记录）
-    for t in (tt.get(a.id), tt.get(b.id)):
-        if t and t.status not in ("abandoned", "done"):
-            tt.update(t.id, status="abandoned", output_summary="e2e verification complete")
-    for r in reviews:
-        if r.status not in ("abandoned", "done"):
-            tt.update(r.id, status="abandoned", output_summary="e2e verification complete")
-    print("已清理：E2E-97 节点 → abandoned")
+    # 清理：DELETE 验收任务（不留 abandoned 垃圾）+ 重置 id 计数器（不跳号）
+    ids = [t.id for t in (tt.get(a.id), tt.get(b.id)) if t]
+    ids += [r.id for r in reviews]
+    for tid in ids:
+        tt.conn.execute("DELETE FROM task_table WHERE id = ?", (tid,))
+    tt.conn.execute(
+        "UPDATE sqlite_sequence SET seq = (SELECT MAX(id) FROM task_table) WHERE name = 'task_table'")
+    tt.conn.commit()
+    print("已清理：验收任务已 DELETE（无残留）")
     tt.close()
     return 0 if (ok1 and ok2 and ok3) else 1
 

@@ -24,7 +24,7 @@ from engine.task_table import Task, TaskTable
 
 logger = logging.getLogger(__name__)
 
-POLL_INTERVAL = 2.0  # seconds
+POLL_INTERVAL = 0.5  # seconds（#97 实时性：watchdog 广播延迟 ≤0.5s）
 DEFAULT_TIMEOUT = 300
 MAX_RETRIES = 3  # transient failure retries (ADR-003 C6)
 RETRY_DELAYS = (1, 2, 4)  # exponential backoff in seconds
@@ -155,6 +155,11 @@ class TaskScheduler:
 
         now = datetime.now(timezone.utc).isoformat()
         self.task_table.update(task.id, status="running")
+        # #97 实时性：状态变更立即广播（不等 watchdog 轮询对比）
+        await self._broadcast({
+            "type": "task_table_updated",
+            "data": (self.task_table.get(task.id) or task).to_dict(),
+        })
         self.router.mark_busy(agent)
         logger.info(f"🚀 Dispatching #{task.id} '{task.title}' → {agent.name}")
         await self._broadcast({

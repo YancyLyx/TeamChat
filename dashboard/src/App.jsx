@@ -33,6 +33,20 @@ export default function App() {
   const [agentMetrics, setAgentMetrics] = useState({})
   const [l3Stats, setL3Stats] = useState(null)
 
+  // #97 实时性：Tasks 面板 2s 轮询兜底（WS 广播为主，轮询防丢帧）
+  useEffect(() => {
+    const timer = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/tasks/table`)
+        if (res.ok) {
+          const rows = await res.json()
+          setTasks(rows)
+        }
+      } catch { /* ignore */ }
+    }, 2000)
+    return () => clearInterval(timer)
+  }, [])
+
   const fetchData = useCallback(async () => {
     try {
       setLoading(true)
