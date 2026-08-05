@@ -886,6 +886,70 @@ for r in results:
 - 阶段 commit：`docs(adr): #96 设计` → `feat(scheduler): #96 并行派发` → `test(scheduler): #96` → `docs(interview): #96 3.6 更新`（验收后）
 - push：攒批，用户同意后统一执行
 
+
+## 附：cici咪 任务走 soso咪 审查（#97，设计 Draft 2026-08-05）
+
+**状态**: Draft（设计先行，开发前必读）
+
+---
+
+### 背景与动机
+
+自动收尾的局限（用户 2026-08-05 提出）：TaskScheduler 对 `agent == cici咪` 的任务**直接按 exit_code 收尾**（成功 done / 失败 failed）——没有审查环节。exit_code=0 不等于"改动正确落盘"（假完成漏洞来源之一）。用户期望：**cici咪 自己执行的任务也要走 soso咪 审查，不能直接验收**——"自己不能验收自己"原则的完整版：cici咪 审 coco咪/soso咪，soso咪 审 cici咪。
+
+### 现状代码路径
+
+| 位置 | 现状 |
+|---|---|
+| `task_scheduler.py::_dispatch` 末尾 | `if task.agent == "cici咪": update(done/failed) + return`——自动收尾，跳过 relay |
+| `result_relay.py::relay` | `if task.agent == "cici咪": drain_if_idle(); return`——cici咪 的结果不排队不审核（不能自己审自己） |
+| `result_relay.py::_pending` | 单一队列 `list[(task, result, retries)]`，审核者固定 cici咪 |
+| `_spawn_cici_review` | spawn cici咪（--resume）审核，prompt 含任务 + 执行输出 + 重试信息 |
+
+### 方案设计
+
+1. **TaskScheduler**：删除 cici咪 自动收尾分支——所有任务统一走 `result_relay.relay()`，由 relay 决定审核者
+2. **ResultRelay 审核者参数化**：`relay()` 根据 `task.agent` 选择 reviewer：
+   - `task.agent == "cici咪"` → reviewer = **soso咪**（QA 审查 cici咪 的产出）
+   - 其他 → reviewer = cici咪（不变）
+3. **审核队列按 reviewer 分组**：`_pending` 改为 `dict[reviewer_name, list]`；`drain_if_idle()` 分别检查各 reviewer 是否 busy（soso咪 审 cici咪 任务时，cici咪 可以同时审别的任务——两个审核流可并行）
+4. **审核 prompt 适配**：soso咪 审查 prompt 用 QA 视角——"审查 cici咪 的执行结果：检查代码改动是否符合 prompt 要求、跑测试验证、对照 AC；通过则 update_task(id, done)，不通过则 update_task(id, failed) 或建议追加修复任务"。cici咪 的审核 prompt 保持不变
+5. **审核 spawn 用 reviewer 的会话**：soso咪 审核 = spawn cursor（--resume soso咪 的 session ID），session_store 按 reviewer 的 cli 取
+6. **引擎仍不标 done/failed（铁律不变）**：soso咪 审核通过后由她通过 MCP `update_task` 标 done；不通过标 failed 或追加修复任务
+
+### 边界与风险
+
+- **分析/审核类任务**：cici咪 的"分析需求"任务（排队场景）也走 soso咪 审查——QA 检查拆任务质量，合理；chat.py 直接 spawn 的分析（不排队时）不走 task_table，不受影响
+- **无递归**：审核本身不是 task_table 任务（relay spawn 审核不建任务），不存在"soso咪 审核 → 又触发审核"的循环
+- **并行审核**：cici咪 审 coco咪 任务 + soso咪 审 cici咪 任务可同时进行（不同 agent），drain 逻辑按 reviewer 独立
+- **会话冲突**：soso咪 审核期间她的执行任务排队等待（正常 busy 语义）
+- **风险点**：soso咪 审核失败/卡死 → cici咪 任务卡 running——与现有审核链路同构（cici咪 卡死时 coco咪 任务也卡），可接受；看板手动干预兜底
+
+### 测试计划
+
+| 测试 | 内容 |
+|---|---|
+| relay reviewer 选择 | cici咪 任务 → reviewer=soso咪；coco咪 任务 → reviewer=cici咪 |
+| 队列分组 | 不同 reviewer 结果互不阻塞；soso咪 busy 时只排 soso咪 的队列 |
+| drain 分 reviewer | soso咪 空闲且 cici咪 busy → 只审 soso咪 队列；反之亦然 |
+| TaskScheduler | cici咪 任务不再自动收尾（不 update done）→ 走 relay |
+| 审核 prompt | soso咪 审核 prompt 含 QA 视角指令 + 任务 + 执行输出 |
+| 回归 | 全量套件 + 真实 e2e（cici咪 任务完成 → soso咪 审核 → done） |
+
+### 验收标准
+
+1. cici咪 执行任务完成后**不自动 done**（单测断言）
+2. 结果进 soso咪 的审核队列，soso咪 空闲时触发审核（单测断言）
+3. soso咪 审核通过（update_task done）→ 任务 done，下游解锁（e2e）
+4. cici咪 审核 coco咪 的链路完全不变（回归）
+5. 全量套件通过
+
+### 追踪
+
+- 编号：#97（commit 统一带 #97）
+- 流程：设计 → 实现 → 测试 → soso咪 审查 → e2e 验收 → 更新 interview 03 §3.7（"自动收尾的局限"→"已实现"）
+- push：攒批，用户同意后统一执行
+
 ## 参考
 
 - spec: `docs/specs/2026-07-08-teamchat-design.md`
