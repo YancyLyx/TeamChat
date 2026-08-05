@@ -157,7 +157,11 @@ TOOLS = {
                 },
                 "feature_id": {
                     "type": "integer",
-                    "description": "需求树标识：追加修复/转派任务时传入原 feature_id（继承所属需求树）；新需求不传（自动建根）",
+                    "description": "需求树标识：同一需求的所有节点（含并行分支）都应传入同一个 feature_id，让 L2 需求树显示一棵拓扑图；新需求不传（自动建根）",
+                },
+                "task_type": {
+                    "type": "string",
+                    "description": "节点类型：development（开发，默认）/ review（soso咪 审查开发产出）/ fix（修复审查发现的问题）/ verify（soso咪 复审修复结果）。审查闭环（#97）必传",
                 },
             },
             "required": ["agent", "title"],

@@ -228,10 +228,14 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest):
         # Fix teamchat_session_id on tasks cici咪 just created via MCP —
         # they must belong to the session this message arrived in, otherwise
         # ResultRelay would resume the wrong cici咪 session for review.
-        from engine.task_planner import fix_new_task_sessions
+        from engine.task_planner import fix_new_task_sessions, link_parallel_branches
         fixed = fix_new_task_sessions(task_table, tasks_before, teamchat_session_id)
         if fixed:
             engine_log.info(f"🔧 Fixed {fixed} analysis-created task(s) session")
+        # 并行分支归属同一棵需求树（L2 显示一张拓扑图，#97 需求树表现）
+        linked = link_parallel_branches(task_table, tasks_before)
+        if linked:
+            engine_log.info(f"🌳 Linked {linked} parallel branch(es) to one feature tree")
 
         engine_log.info(f"📝 cici咪 analysis result ({len(analysis)} chars)")
         # 判断 cici咪 是否真的创建了新任务（用于准确的系统提示，修复"说没建却显示已建"）

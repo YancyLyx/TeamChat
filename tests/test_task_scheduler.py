@@ -790,3 +790,31 @@ class TestReviewClosure:
         assert "类型=development" in prompt
         assert "含你自己的任务" in prompt  # 自我编排模式明示
         assert "创建 soso咪 的审查节点" in prompt
+
+
+class TestFeatureTreeLinking:
+    """#97 — 同一分析回合的并行分支归属一棵需求树（L2 一张拓扑图）。"""
+
+    def test_parallel_branches_link_to_one_tree(self, task_table):
+        from engine.task_planner import link_parallel_branches
+
+        before = {t.id for t in task_table.list_tasks()}
+        a = task_table.create(agent="cici咪", title="A", description="引擎开发")
+        b = task_table.create(agent="coco咪", title="B", description="前端开发")
+        assert a.feature_id == a.id  # A 是根
+        assert b.feature_id == b.id  # B 独立根（两棵树）
+
+        linked = link_parallel_branches(task_table, before)
+        assert linked == 1
+        assert task_table.get(b.id).feature_id == a.feature_id  # B 挂到 A 的树
+
+    def test_depending_tasks_not_relinked(self, task_table):
+        from engine.task_planner import link_parallel_branches
+
+        before = {t.id for t in task_table.list_tasks()}
+        a = task_table.create(agent="cici咪", title="A", description="引擎开发")
+        c = task_table.create(agent="soso咪", title="C", description="测试A",
+                              depends_on=[a.id])
+        assert c.feature_id == a.feature_id  # 依赖任务已继承
+        linked = link_parallel_branches(task_table, before)
+        assert linked == 0  # 只有一个根，无需重挂

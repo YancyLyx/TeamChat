@@ -139,3 +139,23 @@ def dag_summary(task_table: TaskTable, teamchat_session_id: int | None = None) -
         "orphan_deps": orphan_deps(task_table, teamchat_session_id=teamchat_session_id),
         "blocked_by_failure": blocked_by_failure(task_table, teamchat_session_id=teamchat_session_id),
     }
+
+
+def link_parallel_branches(task_table: TaskTable, tasks_before: set[int]) -> int:
+    """同一分析回合创建的多个无依赖根任务 → 归属同一棵需求树（L2 显示一张拓扑图）。
+
+    场景：cici咪 拆需求时建了 A(引擎)、B(前端) 两个并行分支，两者无依赖
+    各自成为根 → L2 显示两棵树。修正：本回合内后续创建的根任务继承
+    第一个根的 feature_id（并行分支挂同一棵树，依赖关系仍由 depends_on 表达）。
+    Returns how many tasks were re-linked.
+    """
+    new_tasks = [t for t in task_table.list_tasks() if t.id not in tasks_before]
+    roots = [t for t in new_tasks if not t.depends_on and t.feature_id == t.id]
+    if len(roots) < 2:
+        return 0
+    anchor = roots[0]
+    fixed = 0
+    for t in roots[1:]:
+        task_table.update(t.id, feature_id=anchor.feature_id)
+        fixed += 1
+    return fixed

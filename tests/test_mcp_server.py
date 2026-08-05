@@ -250,3 +250,26 @@ class TestMcpStdioSubprocess:
         assert data["id"] == 1
         assert len(data["result"]["tools"]) == 6
         assert proc.stderr  # MCP logs go to stderr
+
+
+class TestCreateTaskTaskType:
+    """#97 — create_task 支持 task_type 参数（审查闭环节点类型）。"""
+
+    def test_create_task_with_review_type(self, task_table):
+        from engine.mcp_server import handle_create_task
+
+        resp = handle_create_task({
+            "agent": "soso咪", "title": "审查B", "prompt": "审查B的开发",
+            "task_type": "review",
+        })
+        t = task_table.get(resp["task_id"])
+        assert t.task_type == "review"
+
+    def test_create_task_default_development(self, task_table):
+        from engine.mcp_server import handle_create_task
+
+        resp = handle_create_task({
+            "agent": "coco咪", "title": "前端", "prompt": "开发看板",
+        })
+        t = task_table.get(resp["task_id"])
+        assert t.task_type == "development"
