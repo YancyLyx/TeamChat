@@ -197,6 +197,10 @@ class TaskTable:
 
         if "depends_on" in updates and isinstance(updates["depends_on"], list):
             updates["depends_on"] = json.dumps(updates["depends_on"], ensure_ascii=False)
+        # #97 (soso咪 审查建议1): task_type 枚举校验（与 create() 一致）
+        if "task_type" in updates:
+            tt = updates["task_type"]
+            updates["task_type"] = tt if tt in ("development", "review", "fix", "verify") else "development"
 
         # Auto-set timestamps
         now = datetime.now(timezone.utc).isoformat()

@@ -818,3 +818,69 @@ class TestFeatureTreeLinking:
         assert c.feature_id == a.feature_id  # 依赖任务已继承
         linked = link_parallel_branches(task_table, before)
         assert linked == 0  # 只有一个根，无需重挂
+
+
+class TestTaskTypeReviewFixes:
+    """soso咪 审查建议 3-5：#97 补充测试。"""
+
+    def test_update_rejects_invalid_task_type(self, task_table):
+        """update() 对非法 task_type 回退 development（soso咪 建议1）。"""
+        t = task_table.create(agent="coco咪", title="A", description="开发")
+        task_table.update(t.id, task_type="bogus")
+        assert task_table.get(t.id).task_type == "development"
+        task_table.update(t.id, task_type="review")
+        assert task_table.get(t.id).task_type == "review"
+
+    def test_task_type_roundtrip(self, task_table):
+        """task_type 创建→读取→to_dict round-trip。"""
+        t = task_table.create(agent="soso咪", title="审查", description="审",
+                              task_type="verify")
+        got = task_table.get(t.id)
+        assert got.task_type == "verify"
+        assert got.to_dict()["task_type"] == "verify"
+
+    async def test_verify_prompt_accepts_conclusion(self, task_table, mock_runner):
+        """verify 节点 prompt：验收复审结论，不再建审查（soso咪 建议4）。"""
+        router = MagicMock()
+        router.is_busy.return_value = False
+        session_store = MagicMock()
+        session_store.get_agent_session_id.return_value = "sid"
+        mock_runner._run.return_value = _make_result(agent_name="cici咪", output="ok")
+        relay = ResultRelay(mock_runner, router, session_store, task_table)
+        task = task_table.create(agent="soso咪", title="复审D", description="复审修复",
+                                 task_type="verify")
+        await relay.relay(task, _make_result(agent_name="soso咪"))
+        prompt = mock_runner._run.await_args.args[1].prompt
+        assert "类型=verify" in prompt
+        assert "不再为它创建审查节点" in prompt
+
+    async def test_cici_busy_queues_but_coco_dispatches(self, task_table, mock_runner):
+        """soso咪 建议5：cici咪 busy 时她的审核排队，coco咪 任务仍可派发。"""
+        from engine.router import Router
+
+        router = Router()
+        session_store = MagicMock()
+        session_store.get_agent_session_id.return_value = "sid"
+        relay = ResultRelay(mock_runner, router, session_store, task_table)
+
+        # coco 任务在 cici busy 之前创建（_should_defer 只延迟 busy 期间创建的任务）
+        coco = task_table.create(agent="coco咪", title="B", description="前端开发")
+        router.mark_busy(AGENT_CICI)  # cici咪 开始审核
+
+        # cici 的结果 → 排队（cici busy）
+        cici_task = task_table.create(agent="cici咪", title="C", description="引擎开发")
+        await relay.relay(cici_task, _make_result(agent_name="cici咪"))
+        assert len(relay._pending) == 1  # 排队未审核
+        mock_runner._run.assert_not_called()  # cici busy → 不 spawn 审核
+
+        # coco 的任务仍可被 scheduler 派发（busy 只挡 cici）
+        started = []
+        async def fake_run(agent, task, **kwargs):
+            started.append(agent.name)
+            return _make_result(agent_name=agent.name)
+        mock_runner._run = fake_run
+        store = MagicMock()
+        scheduler = TaskScheduler(mock_runner, router, task_table,
+                                  session_store, store, relay)
+        await scheduler._poll_once()
+        assert started == ["coco咪"]  # coco 正常派发
