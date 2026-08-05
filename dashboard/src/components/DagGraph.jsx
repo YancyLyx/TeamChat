@@ -14,6 +14,13 @@ const NODE_COLORS = {
   abandoned: '#9ca3af',
 }
 
+// #97 方案 A：agent 颜色（避开状态色：绿done/蓝running/红failed/灰pending）
+const AGENT_COLORS = {
+  'cici咪': '#8b5cf6',   // 紫
+  'coco咪': '#14b8a6',   // 青
+  'soso咪': '#f59e0b',   // 橙
+}
+
 // 分层：BFS 按依赖深度（0 = 无依赖，n = 依赖链最长 n）
 function computeLayers(nodes) {
   const byId = Object.fromEntries(nodes.map((n) => [n.id, n]))
@@ -47,7 +54,7 @@ function computeLayers(nodes) {
 export default function DagGraph({ nodes, height = 120 }) {
   const { layers, depth, byId } = useMemo(() => computeLayers(nodes || []), [nodes])
 
-  const W = 260
+  const W = 360
   const ROW = 26
   const NODE_R = 6
   const LAYER_X = 40 // 左侧留空间放标题
@@ -90,14 +97,25 @@ export default function DagGraph({ nodes, height = 120 }) {
         const p = pos[n.id] || { x: 20, y: 10 }
         const color = NODE_COLORS[n.status] || '#d1d5db'
         const running = n.status === 'running'
+        const agentColor = AGENT_COLORS[n.agent] || '#9ca3af'
         return (
           <g key={n.id}>
+            {/* 审查/复审节点：虚线框（agent 色）——一眼看出验证链路 */}
+            {(n.task_type === 'review' || n.task_type === 'verify') && (
+              <circle cx={p.x} cy={p.y} r={NODE_R + 5} fill="none"
+                stroke={agentColor} strokeWidth="1" strokeDasharray="3 2" />
+            )}
+            {/* agent 外圈（颜色区分谁在执行） */}
+            <circle cx={p.x} cy={p.y} r={NODE_R + 1.5} fill="none"
+              stroke={agentColor} strokeWidth="1.5" />
             <circle cx={p.x} cy={p.y} r={NODE_R} fill={color}
               className={running ? 'dag-running' : ''}>
-              <title>{`#${n.id} ${n.title} (${n.status})`}</title>
+              <title>{`#${n.id} ${n.title} (${n.agent}, ${n.status})`}</title>
             </circle>
-            <text x={p.x + 10} y={p.y + 3} fontSize="7" fill="#9ca3af" fontFamily="monospace">
-              #{n.id}
+            {/* 标注：标题(agent)，agent 用 agent 色 */}
+            <text x={p.x + 10} y={p.y + 3} fontSize="8" fill={agentColor}
+              fontFamily="monospace">
+              {(n.title || '').slice(0, 7)}{n.agent ? `(${n.agent})` : ''}
             </text>
           </g>
         )
