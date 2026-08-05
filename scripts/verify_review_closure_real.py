@@ -51,10 +51,9 @@ def main() -> int:
     review_node_seen = None
     while time.monotonic() - started_at < 600:  # 最多 10 分钟
         ta, tb = tt.get(a.id), tt.get(b.id)
-        # 找审查节点：soso咪 执行 + depends_on 含被审任务（兼容 task_type 缺失的旧数据）
+        # 找审查节点：同一需求树（feature_id）里 soso咪 的验证节点
         reviews = [t for t in tt.list_tasks()
-                   if t.agent == "soso咪" and a.id in t.depends_on
-                   and t.feature_id == ta.feature_id]
+                   if t.agent == "soso咪" and t.feature_id == ta.feature_id]
         r_state = "none"
         if reviews:
             r = reviews[0]
@@ -75,8 +74,7 @@ def main() -> int:
 
     ta, tb = tt.get(a.id), tt.get(b.id)
     reviews = [t for t in tt.list_tasks()
-               if t.agent == "soso咪" and a.id in t.depends_on
-               and t.feature_id == ta.feature_id]
+               if t.agent == "soso咪" and t.feature_id == ta.feature_id]
     print("=" * 56)
     print(f"#97 真实 e2e 验收（session {SESSION_ID}）")
     print("=" * 56)
@@ -94,9 +92,8 @@ def main() -> int:
     print(f"  验收点3 (审查节点完成回流): {'✅' if ok3 else '❌'}")
     print("验收结论:", "PASS ✅" if (ok1 and ok2 and ok3) else "INCOMPLETE ⚠️ 见上方状态")
 
-    # 清理：DELETE 验收任务（不留 abandoned 垃圾）+ 重置 id 计数器（不跳号）
-    ids = [t.id for t in (tt.get(a.id), tt.get(b.id)) if t]
-    ids += [r.id for r in reviews]
+    # 清理：DELETE 整棵需求树（feature_id 匹配，防漏删）+ 重置 id 计数器（不跳号）
+    ids = [t.id for t in tt.list_tasks() if t.feature_id == a.feature_id]
     for tid in ids:
         tt.conn.execute("DELETE FROM task_table WHERE id = ?", (tid,))
     tt.conn.execute(
