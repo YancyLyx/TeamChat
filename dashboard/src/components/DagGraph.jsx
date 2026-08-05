@@ -14,11 +14,12 @@ const NODE_COLORS = {
   abandoned: '#9ca3af',
 }
 
-// #97 方案 A：agent 颜色（避开状态色：绿done/蓝running/红failed/灰pending）
+// #97 方案 A：agent 颜色（用户指定：cici咪 蓝 / coco咪 绿 / soso咪 紫；
+// 深色系与状态色 running浅蓝/done浅绿区分）
 const AGENT_COLORS = {
-  'cici咪': '#8b5cf6',   // 紫
-  'coco咪': '#14b8a6',   // 青
-  'soso咪': '#f59e0b',   // 橙
+  'cici咪': '#2563eb',   // 蓝
+  'coco咪': '#16a34a',   // 绿
+  'soso咪': '#7c3aed',   // 紫
 }
 
 // 分层：BFS 按依赖深度（0 = 无依赖，n = 依赖链最长 n）

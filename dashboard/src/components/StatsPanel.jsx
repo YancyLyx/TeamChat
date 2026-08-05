@@ -204,8 +204,6 @@ export default function StatsPanel({ agentMetrics = {}, l3Stats = null, sessionI
                         </details>
                       )
                     })}
-                      )
-                    })()}
                   </>
                 )}
               </div>
