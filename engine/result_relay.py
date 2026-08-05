@@ -103,10 +103,14 @@ class ResultRelay:
         )
         # Fix teamchat_session_id on tasks cici咪 just created during review
         # (完善点③ — same problem chat.py already fixes for the /api/chat path).
-        from engine.task_planner import fix_new_task_sessions
+        from engine.task_planner import fix_new_task_sessions, link_parallel_branches
         fixed = fix_new_task_sessions(self.task_table, tasks_before, target_session)
         if fixed:
             logger.info(f"🔧 Fixed {fixed} review-created task(s) session → {target_session}")
+        # 审核回合创建的并行任务也归属同一需求树（L2 一张拓扑图，#97）
+        linked = link_parallel_branches(self.task_table, tasks_before)
+        if linked:
+            logger.info(f"🌳 Linked {linked} review-created branch(es) to one feature tree")
         # 落库：cici咪 审核输出持久化（否则刷新后丢失——用户报告）
         if self.store:
             self.store.log(
