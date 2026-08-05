@@ -32,7 +32,7 @@ export default function StatsPanel({ agentMetrics = {}, l3Stats = null, sessionI
     if (subTab !== 'L2') return
     let cancelled = false
     setFeaturesLoading(true)
-    // #97 需求树实时刷新：每 2s 轮询（watchdog 广播未覆盖 Stats 面板）
+    // #97 需求树实时刷新：每 1s 轮询（watchdog 广播未覆盖 Stats 面板）
     const poll = async () => {
       try {
         const res = await fetch(`${API_BASE}/tasks/features?teamchat_session_id=${sessionId ?? 1}`)
@@ -44,7 +44,7 @@ export default function StatsPanel({ agentMetrics = {}, l3Stats = null, sessionI
       finally { if (!cancelled) setFeaturesLoading(false) }
     }
     poll()
-    const timer = setInterval(poll, 2000)
+    const timer = setInterval(poll, 1000)
     return () => { cancelled = true; clearInterval(timer) }
   }, [subTab, sessionId])
 
@@ -67,7 +67,8 @@ export default function StatsPanel({ agentMetrics = {}, l3Stats = null, sessionI
     if (subTab !== 'L2') return
     let cancelled = false
     setLoadingL2(true)
-    ;(async () => {
+    // #97 同步性：Task Stats 1s 轮询（与 Tasks 面板同频）
+    const poll = async () => {
       try {
         const [er, tr] = await Promise.all([
           fetch(`${API_BASE}/engine`),
@@ -79,8 +80,10 @@ export default function StatsPanel({ agentMetrics = {}, l3Stats = null, sessionI
         }
       } catch { /* ignore */ }
       finally { if (!cancelled) setLoadingL2(false) }
-    })()
-    return () => { cancelled = true }
+    }
+    poll()
+    const timer = setInterval(poll, 1000)
+    return () => { cancelled = true; clearInterval(timer) }
   }, [subTab])
 
   return (

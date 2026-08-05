@@ -57,17 +57,18 @@ export default function DagGraph({ nodes, height = 120 }) {
   const W = 360
   const ROW = 26
   const NODE_R = 6
-  const LAYER_X = 40 // 左侧留空间放标题
+  const SPACING = 130 // 同层节点水平间距（固定，居中聚拢，适配窄容器）
 
   if (!nodes || nodes.length === 0) return null
 
-  // 坐标：y = 层 * ROW + 中心；x = 层内居中
+  // 坐标：y = 层 * ROW + 中心；x = 同层节点居中聚拢（固定间距，不撑满边界）
   const pos = {}
   layers.forEach((layer, d) => {
     const n = layer.length
+    const startX = (W - (n - 1) * SPACING) / 2
     layer.forEach((node, i) => {
       pos[node.id] = {
-        x: LAYER_X + (W - LAYER_X - 20) * (n === 1 ? 0.5 : i / (n - 1)),
+        x: startX + i * SPACING,
         y: d * ROW + 14,
       }
     })
@@ -89,9 +90,12 @@ export default function DagGraph({ nodes, height = 120 }) {
 
   const maxDepth = Math.max(0, ...layers.map((l, i) => (l.length ? i : 0)))
   const svgHeight = Math.max(height, maxDepth * ROW + 30)
+  // viewBox 宽度按内容动态（最右节点 + 留白），SVG width 100% 缩放适配容器
+  const contentW = Math.max(...Object.values(pos).map((p) => p.x + 30), W)
+  const vbW = Math.min(contentW, W * 2) // 上限防极端撑宽
 
   return (
-    <svg width="100%" height={svgHeight} viewBox={`0 0 ${W} ${svgHeight}`} className="block">
+    <svg width="100%" height={svgHeight} viewBox={`0 0 ${vbW} ${svgHeight}`} className="block">
       {edges}
       {nodes.map((n) => {
         const p = pos[n.id] || { x: 20, y: 10 }

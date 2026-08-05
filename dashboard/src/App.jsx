@@ -43,7 +43,7 @@ export default function App() {
           setTasks(rows)
         }
       } catch { /* ignore */ }
-    }, 2000)
+    }, 1000)
     return () => clearInterval(timer)
   }, [])
 
@@ -86,6 +86,21 @@ export default function App() {
   }, [activeSessionId])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  // #97 同步性：L1/L3（stats）1s 轮询——与 Tasks 面板同频，避免接口数据不一致
+  useEffect(() => {
+    const pollStats = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/stats?teamchat_session_id=${activeSessionId ?? 1}`)
+        if (!res.ok) return
+        const st = await res.json()
+        setAgentMetrics(normalizeAgentMetrics(st, []))  // stats 聚合为主，sessions fallback 传空
+        setL3Stats(st.l3 ?? null)
+      } catch { /* ignore */ }
+    }
+    const interval = setInterval(pollStats, 1000)
+    return () => clearInterval(interval)
+  }, [activeSessionId])
 
   // Poll /api/engine every 2s to keep agent sidebar status current
   useEffect(() => {
