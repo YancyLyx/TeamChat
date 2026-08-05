@@ -115,7 +115,7 @@ export default function StatsPanel({ agentMetrics = {}, l3Stats = null, sessionI
                   <div className="flex items-center gap-1.5">
                     <span className="text-sm">{AGENT_EMOJI[name]}</span>
                     <span className="text-xs font-semibold text-gray-700">{name}</span>
-                    <span className="text-[10px] text-gray-400">{calls} tasks</span>
+                    <span className="text-[10px] text-gray-400">{calls} calls</span>
                   </div>
                   <span className={`text-xs font-mono font-bold ${rate >= 0.8 ? 'text-green-600' : 'text-yellow-600'}`}>{pct}%</span>
                 </div>
@@ -159,8 +159,17 @@ export default function StatsPanel({ agentMetrics = {}, l3Stats = null, sessionI
                   <p className="text-[10px] text-gray-400 text-center py-3">暂无需求树</p>
                 ) : (
                   <>
-                    {/* 进行中（有 running/pending 节点）→ DAG 图 */}
-                    {features.filter((f) => f.running > 0 || f.pending > 0).map((f) => (
+                    {/* 进行中（有 running/pending 节点，或最近 60s 有活动——审核空窗不消失）→ DAG 图 */}
+                    {features.filter((f) => {
+                      const active = f.running > 0 || f.pending > 0
+                      if (active) return true
+                      // 最近活动判定：树短暂全 done 但闭环未完成（cici咪 审核后、审查节点创建前）
+                      if (f.last_activity) {
+                        const t = new Date(f.last_activity).getTime()
+                        return Date.now() - t < 60_000
+                      }
+                      return false
+                    }).map((f) => (
                       <div key={f.feature_id} className="bg-white border border-gray-100 rounded-lg p-2">
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-[10px] font-semibold text-blue-500">🔄 运行中</span>
@@ -181,8 +190,16 @@ export default function StatsPanel({ agentMetrics = {}, l3Stats = null, sessionI
                       </div>
                     ))}
                     {/* 已完成（全 done/abandoned）→ 折叠列表（多节点在前，单节点聚合） */}
-                    {features.filter((f) => f.running === 0 && f.pending === 0).length > 0 && (() => {
-                      const done = features.filter((f) => f.running === 0 && f.pending === 0)
+                    {features.filter((f) => {
+                      if (f.running > 0 || f.pending > 0) return false
+                      if (f.last_activity) return Date.now() - new Date(f.last_activity).getTime() >= 60_000
+                      return true
+                    }).length > 0 && (() => {
+                      const done = features.filter((f) => {
+                        if (f.running > 0 || f.pending > 0) return false
+                        if (f.last_activity) return Date.now() - new Date(f.last_activity).getTime() >= 60_000
+                        return true
+                      })
                       const multi = done.filter((f) => f.total >= 2)  // 有意义的 DAG 树
                       const single = done.filter((f) => f.total === 1) // 独立单任务
                       return (

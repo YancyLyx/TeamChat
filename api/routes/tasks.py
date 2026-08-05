@@ -204,6 +204,11 @@ async def features(request: Request, teamchat_session_id: int = 1):
         running = sum(1 for t in nodes if t.status == 'running')
         pending = sum(1 for t in nodes if t.status == 'pending')
         depth = max((_feature_depth(tt, t.id, memo) for t in nodes), default=1)
+        # 最近活动时间（#97 显示：树短暂全 done 但闭环未完成时仍显示进行中）
+        stamps = [t.started_at for t in nodes if t.started_at] \
+            + [t.finished_at for t in nodes if t.finished_at] \
+            + [t.created_at for t in nodes if t.created_at]
+        last_activity = max(stamps) if stamps else ""
         # 总时长：最早的 created_at → 最晚的 finished_at（有值的）
         times = [t.finished_at for t in nodes if t.finished_at] or []
         created_times = [t.created_at for t in nodes if t.created_at]
@@ -217,6 +222,7 @@ async def features(request: Request, teamchat_session_id: int = 1):
             except Exception:
                 duration_sec = 0
         features.append({
+            "last_activity": last_activity,
             "feature_id": fid,
             "title": root.title if root else f"feature #{fid}",
             "total": total,
