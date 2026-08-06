@@ -40,10 +40,17 @@ git config user.email "claude@teamchat.local"
 
 ## 当前阶段
 
-ADR-003 实施阶段。引擎层改造 + 前端聊天室。见 PROGRESS.md。
+ADR-004（Phase 4）实施中：核心闭环、DAG 编排、并行派发（#96）、审查闭环（#97）、段落级流式、Stats 观测均已落地。待办见 PROGRESS.md。
 
 ## Git 流程
+
+**GitHub 暂停期间（当前）**：
+- 直接在 main 上开发（不分支）→ commit 带功能编号（如 #96/#97）+ 阶段标记（docs/feat/fix/test）
+- **攒批 push**：本地 commit 攒批，push 前先问用户，用户同意才 push（显式 `git push gitee main`，不用 `-u`）
+- 远程操作尽量少（GitHub 曾因频繁操作被风控暂停；gitee 同理）
+
+**GitHub 恢复后**：
 ```
 Issue → git checkout -b feature/cici-<desc> → 写代码 → git commit → git push
-→ gh pr create → ⚠️ 等 soso咪 review → gh pr merge → git checkout main
+→ gh pr create → ⚠️ 等 soso咪 review → 人类合并 → git checkout main
 ```
